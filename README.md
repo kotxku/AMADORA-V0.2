@@ -44,10 +44,10 @@ The IPA bundles **Java 8, 17, 21 and 25**. The right one is picked from each Min
 | 1.8 - 1.16.5 | 8 |
 | 1.17 - 1.20.4 | 17 |
 | 1.20.5 - 1.21.x | 21 |
-| 26.1 - 26.2 | 25 |
+| 26.1 - 26.3 | 25 |
 
-### LWJGL 3.4.1 for Minecraft 26.1 and 26.2
-Amethyst replaces Minecraft's own LWJGL with an iOS build, and upstream only ships LWJGL 3.3.3. Minecraft 26.1 and 26.2 need **LWJGL 3.4.1**, so AMYDORA also bundles an iOS build of 3.4.1 (built from [Amethyst's LWJGL fork](https://github.com/AngelAuraMC/lwjgl3/tree/wip/rebase_3.4.1)). It also adds the GLFW functions those versions call that Amethyst's iOS GLFW layer was missing: monitor name, platform check, and IME text-input callbacks. The launcher reads each version's library list and picks 3.4.1 when the version asks for LWJGL 3.4 or newer. Every other version keeps 3.3.3, exactly as in Amethyst. `tools/check_lwjgl_refs.py` checks a `client.jar` against the bundled LWJGL and lists any method it calls that's missing.
+### LWJGL 3.4.1 and SDL3 for Minecraft 26.1 - 26.3
+Amethyst replaces Minecraft's own LWJGL with an iOS build, and upstream only ships LWJGL 3.3.3. Minecraft 26.1 and 26.2 need **LWJGL 3.4.1**, so AMYDORA also bundles an iOS build of 3.4.1 (built from [Amethyst's LWJGL fork](https://github.com/AngelAuraMC/lwjgl3/tree/wip/rebase_3.4.1)). It also adds the GLFW functions those versions call that Amethyst's iOS GLFW layer was missing: monitor name, platform check, and IME text-input callbacks. The launcher reads each version's library list and picks 3.4.1 when the version asks for LWJGL 3.4 or newer. Every other version keeps 3.3.3, exactly as in Amethyst. Minecraft 26.3 moved its window and input from GLFW to **SDL3**. There's no SDL3 for Amethyst's iOS view, so AMYDORA includes an SDL3 bridge (`JavaApp/src_lwjgl341/org/lwjgl/sdl`). It implements the SDL functions 26.3 calls on top of Amethyst's iOS GLFW layer: every SDL window shares the one iOS surface and OpenGL context, and touch, on-screen keyboard and mouse input are translated into SDL key, text, mouse and window events with real SDL scancodes and keycodes. 26.3 asks for LWJGL 3.4.3, but every LWJGL function it calls exists in the bundled 3.4.1. `tools/check_lwjgl_refs.py` checks a `client.jar` against the bundled LWJGL and lists any method it calls that's missing.
 
 ### Builds without a Mac
 Upstream builds on a private self-hosted Mac. AMYDORA builds on GitHub's hosted macOS runner (`.github/workflows/pandora.yml`), so every push produces an IPA under **Actions**.
@@ -75,7 +75,7 @@ These come straight from Amethyst:
 - The interface is Amethyst's, renamed; the Pandora-style screens aren't built yet.
 - Mod Doctor only understands Fabric and Quilt mods (`fabric.mod.json`). It doesn't check version ranges, so a mod that's present but the wrong version isn't flagged.
 - Mod Doctor doesn't run automatically after a `.mrpack` install; use the long-press action.
-- **Minecraft 26.3 doesn't launch yet.** It replaced GLFW with SDL3 (LWJGL 3.4.3) for its window and input. Amethyst's iOS window, touch and keyboard layer only speaks GLFW, so 26.3 needs a new SDL layer. Play 26.3 packs on 26.2 for now.
+- Minecraft 26.3 runs through AMYDORA's SDL3 bridge, which is new. Message boxes are logged instead of shown, the Vulkan renderer is turned off (OpenGL only), and the text-input candidate window isn't supported.
 - Forge and NeoForge loaders have to be installed from + > Forge after import.
 - Some CurseForge files can't be downloaded by any third-party launcher.
 - Very large instances (multi-GB worlds or Distant Horizons data) take a while to copy and import.

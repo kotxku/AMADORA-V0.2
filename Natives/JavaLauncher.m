@@ -256,6 +256,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     if (useLWJGL34) {
         // LWJGL 3.4.1 natives first, everything else (OpenAL, JNA, renderers) still comes from Frameworks
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@/Frameworks", lwjgl34Path, NSBundle.mainBundle.bundlePath].UTF8String;
+        // 26.x would find MoltenVK and try its Vulkan backend; keep it on Amethyst's OpenGL renderers
+        margv[++margc] = "-Dorg.lwjgl.vulkan.libname=amydora-vulkan-disabled";
     } else {
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
     }
