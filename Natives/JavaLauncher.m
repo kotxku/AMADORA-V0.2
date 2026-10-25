@@ -258,6 +258,8 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@/Frameworks", lwjgl34Path, NSBundle.mainBundle.bundlePath].UTF8String;
         // 26.x would find MoltenVK and try its Vulkan backend; keep it on Amethyst's OpenGL renderers
         margv[++margc] = "-Dorg.lwjgl.vulkan.libname=amadora-vulkan-disabled";
+        // 26.x bootstraps LWJGL's spvc binding, which looks for libspirv-cross.dylib; MobileGlues already ships the same C API
+        margv[++margc] = [NSString stringWithFormat:@"-Dorg.lwjgl.spvc.libname=%@/Frameworks/libspirv-cross-c-shared.0.dylib", NSBundle.mainBundle.bundlePath].UTF8String;
     } else {
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
     }
