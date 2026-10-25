@@ -28,6 +28,12 @@ jobs:
           git clone --depth 1 -b 5.17.0 https://github.com/java-native-access/jna "$RUNNER_TEMP/jna"
           bash tools/build_jnidispatch_ios.sh "$RUNNER_TEMP/jna" Natives/build/libjnidispatch.dylib
 
+      # Distant Horizons' relocated zstd-jni; DH falls back to System.loadLibrary, which searches Frameworks
+      - name: Build zstd-jni (Distant Horizons) for iOS
+        run: |
+          git clone --depth 1 -b v1.5.7-12 https://github.com/luben/zstd-jni "$RUNNER_TEMP/zstd-jni"
+          bash tools/build_zstd_jni_ios.sh "$RUNNER_TEMP/zstd-jni" Natives/build/libzstd-jni_dh-1.5.7-12.dylib
+
       - name: Build IPA
         run: |
           export PATH="$(brew --prefix)/bin:$PATH"

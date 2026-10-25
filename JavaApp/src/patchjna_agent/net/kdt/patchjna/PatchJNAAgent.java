@@ -21,6 +21,8 @@ public class PatchJNAAgent implements ClassFileTransformer {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+        } else if (classBeingRedefined == null) { // a redefinition may not add the synthetic methods again
+            transformeredByteCode = NativeRedirect.transform(loader, className, classfileBuffer);
         }
         return transformeredByteCode;
     }
