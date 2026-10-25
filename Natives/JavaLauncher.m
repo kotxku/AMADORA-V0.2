@@ -99,6 +99,18 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
     }
 }
 
+// Minecraft 26.1+ is built against LWJGL 3.4, which isn't compatible with the bundled 3.3.3
+static BOOL requiresLWJGL34(id launchTarget) {
+    if (![launchTarget isKindOfClass:NSDictionary.class]) return NO;
+    for (NSDictionary *library in launchTarget[@"libraries"]) {
+        NSArray<NSString *> *parts = [library[@"name"] componentsSeparatedByString:@":"];
+        if (parts.count >= 3 && [parts[0] isEqualToString:@"org.lwjgl"] && [parts[1] isEqualToString:@"lwjgl"]) {
+            return [parts[2] compare:@"3.4" options:NSNumericSearch] != NSOrderedAscending;
+        }
+    }
+    return NO;
+}
+
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
 
@@ -238,7 +250,15 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     }
     margv[++margc] = "-Xms128M";
     margv[++margc] = [NSString stringWithFormat:@"-Xmx%dM", allocmem].UTF8String;
-    margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
+    BOOL useLWJGL34 = requiresLWJGL34(launchTarget);
+    NSString *lwjgl34Path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"lwjgl341"];
+    NSLog(@"[JavaLauncher] Using LWJGL %s", useLWJGL34 ? "3.4.1" : "3.3.3");
+    if (useLWJGL34) {
+        // LWJGL 3.4.1 natives first, everything else (OpenAL, JNA, renderers) still comes from Frameworks
+        margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@/Frameworks", lwjgl34Path, NSBundle.mainBundle.bundlePath].UTF8String;
+    } else {
+        margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
+    }
     margv[++margc] = [NSString stringWithFormat:@"-Duser.dir=%@", gameDir].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Duser.home=%s", getenv("AME_HOME")].UTF8String;
     margv[++margc] = [NSString stringWithFormat:@"-Duser.timezone=%@", NSTimeZone.localTimeZone.name].UTF8String;
@@ -359,6 +379,16 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     NSLog(@"[Init] Found JLI lib");
 
     NSString *classpath = [NSString stringWithFormat:@"%@/*", librariesPath];
+    if (useLWJGL34) {
+        // Same jars as libs/* except the LWJGL 3.3.3 one
+        NSMutableArray *jars = [NSMutableArray arrayWithObject:[lwjgl34Path stringByAppendingPathComponent:@"lwjgl.jar"]];
+        for (NSString *file in [fm contentsOfDirectoryAtPath:librariesPath error:nil]) {
+            if ([file hasSuffix:@".jar"] && ![file isEqualToString:@"lwjgl.jar"]) {
+                [jars addObject:[librariesPath stringByAppendingPathComponent:file]];
+            }
+        }
+        classpath = [jars componentsJoinedByString:@":"];
+    }
     if (launchJar) {
         classpath = [classpath stringByAppendingFormat:@":%@", launchTarget];
     }

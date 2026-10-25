@@ -11,7 +11,7 @@ TARGETS := $(TARGETS:$(SOURCEDIR)/%=$(OUTPUTDIR)/%.jar)
 # Add all jars to classpath and allow compiling with private API
 JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):$(wildcard libs/*/*.jar))" -XDignore.symbol.file
 
-all: $(TARGETS)
+all: $(TARGETS) $(OUTPUTDIR)/lwjgl341/lwjgl.jar
 	
 # Sometimes the CI produces empty class file resulting in broken jar, so we check and abort here
 check_empty_classes:
@@ -45,6 +45,18 @@ $(OUTPUTDIR)/lwjgl.jar: $(CLASSES) check_empty_classes
 	@cd $(OUTPUTDIR)/lwjgl_lib && find ../../libs/lwjgl -name 'lwjgl*.jar' -exec $(BOOTJDK)/jar -xf {} \; && rm -rf META-INF
 	@cp -R $(OUTPUTDIR)/lwjgl/* $(OUTPUTDIR)/lwjgl_lib/
 	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl_lib .
+
+# LWJGL 3.4.1 for Minecraft 26.1+: same layout as lwjgl.jar, with GLFW overrides from src_lwjgl341 compiled against 3.4.1
+LWJGL341_SOURCES := $(shell find src_lwjgl341 -type f -name '*.java')
+$(OUTPUTDIR)/lwjgl341/lwjgl.jar: $(LWJGL341_SOURCES) $(OUTPUTDIR)/launcher.jar
+	@set -e
+	@echo "Creating $@"
+	@rm -rf $(OUTPUTDIR)/lwjgl341_lib $(OUTPUTDIR)/lwjgl341_classes
+	@mkdir -p $(OUTPUTDIR)/lwjgl341_lib $(OUTPUTDIR)/lwjgl341_classes $(dir $@)
+	@$(BOOTJDK)/javac -cp "$(OUTPUTDIR)/launcher.jar:$(subst $() $(),:,$(wildcard lwjgl341/*.jar) $(wildcard libs/others/*.jar))" -XDignore.symbol.file -implicit:none -d $(OUTPUTDIR)/lwjgl341_classes $(LWJGL341_SOURCES)
+	@cd $(OUTPUTDIR)/lwjgl341_lib && find ../../lwjgl341 -name 'lwjgl*.jar' -exec $(BOOTJDK)/jar -xf {} \; && rm -rf META-INF
+	@cp -R $(OUTPUTDIR)/lwjgl341_classes/* $(OUTPUTDIR)/lwjgl341_lib/
+	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl341_lib .
 
 $(OUTPUTDIR)/patchjna_agent.jar: $(CLASSES)
 	@set -e

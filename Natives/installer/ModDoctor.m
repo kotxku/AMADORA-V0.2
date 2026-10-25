@@ -188,6 +188,29 @@ static NSString *normalized(NSString *name) {
 }
 
 + (NSString *)fixMissingModsInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {
+    NSString *switchedOff = [self disableUnsupportedModsIn:[gameDir stringByAppendingPathComponent:@"mods"]];
+    NSString *report = [self checkDependenciesInGameDir:gameDir minecraftVersion:mcVersion loader:loader];
+    return switchedOff ? [NSString stringWithFormat:@"%@
+
+%@", switchedOff, report] : report;
+}
+
+// C2ME crashes Minecraft on iOS. Rename instead of delete so the player can turn it back on.
++ (NSString *)disableUnsupportedModsIn:(NSString *)modsDir {
+    NSMutableArray *disabled = [NSMutableArray new];
+    for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
+        if (![file.lowercaseString hasPrefix:@"c2me"] || ![file.pathExtension.lowercaseString isEqualToString:@"jar"]) continue;
+        NSString *path = [modsDir stringByAppendingPathComponent:file];
+        if ([NSFileManager.defaultManager moveItemAtPath:path toPath:[path stringByAppendingString:@".disabled"] error:nil]) {
+            [disabled addObject:file];
+        }
+    }
+    return disabled.count ? [NSString stringWithFormat:@"Switched off mods that don't work on iOS:
+%@", [disabled componentsJoinedByString:@"
+"]] : nil;
+}
+
++ (NSString *)checkDependenciesInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {
     // shortcut: Forge/NeoForge mods.toml is not parsed, only fabric.mod.json; add a TOML reader if Forge packs need it
     if (![loader isEqualToString:@"fabric"] && ![loader isEqualToString:@"quilt"]) {
         return [NSString stringWithFormat:@"Mod Doctor can only check Fabric and Quilt mods. This profile uses %@.", loader];
