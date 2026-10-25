@@ -1,23 +1,30 @@
-# AMYDORA V0.1
+<p align="center"><img src="docs/branding/amadora-banner.png" alt="AMADORA: Minecraft launcher for iOS" width="100%"></p>
+
+# AMADORA V0.2
 
 **A [Pandora Launcher](https://github.com/Moulberry/PandoraLauncher)-inspired fork of [Angel Aura Amethyst](https://github.com/AngelAuraMC/Amethyst-iOS) for iPhone and iPad.** The goal is to make online play with custom modpacks from the player's PC seamless and easy: take the instances you already play on PC, drop them on your phone, and join the same servers.
 
 > **About this project**
-> The long-term goal of AMYDORA is a 1:1 Pandora Launcher experience on iOS, built on top of Amethyst. Amethyst already does the hard parts: running Java Minecraft on iOS, touch controls, JIT, and Microsoft login. Pandora's own interface is built on a desktop-only UI framework and launches Java as a separate process, which iOS doesn't allow, so it can't be ported directly. AMYDORA rebuilds Pandora's features on Amethyst's engine one piece at a time instead.
+> The long-term goal of AMADORA is a 1:1 Pandora Launcher experience on iOS, built on top of Amethyst. Amethyst already does the hard parts: running Java Minecraft on iOS, touch controls, JIT, and Microsoft login. Pandora's own interface is built on a desktop-only UI framework and launches Java as a separate process, which iOS doesn't allow, so it can't be ported directly. AMADORA rebuilds Pandora's features on Amethyst's engine one piece at a time instead.
 >
-> **This release (V0.1) is a first version of that idea.** It focuses on getting your Pandora instances and other modpacks onto your phone and playable. The screens are still Amethyst's; a Pandora-style interface is planned for later versions.
+> **This release (V0.2) is still an early version of that idea.** It focuses on getting your Pandora instances and other modpacks onto your phone and playable. The screens are still Amethyst's; a Pandora-style interface is planned for later versions.
 
 **[Download the latest IPA from Releases](../../releases/latest)**
+
+### New in V0.2
+- **Minecraft 26.1 - 26.3:** bundled iOS build of LWJGL 3.4.1, plus an SDL3 bridge so 26.3 runs on Amethyst's iOS screen and controls.
+- **C2ME switched off automatically**, because it crashes on iOS.
+- **New name and look:** AMADORA, with a new app icon and logo.
 
 ## What's new compared to Amethyst
 
 ### Add Custom Modpack
-The first section of the **Profiles** screen has an **Add Custom Modpack** row. Tap it once, pick a file in the Files app, and AMYDORA creates a ready-to-play profile.
+The first section of the **Profiles** screen has an **Add Custom Modpack** row. Tap it once, pick a file in the Files app, and AMADORA creates a ready-to-play profile.
 
 | File | What happens |
 |---|---|
 | **Pandora Launcher instance** (`.zip` made by `export-instances.ps1`, or a zip of an instance folder) | Reads `info_v1.json` for the Minecraft version and loader and copies the whole `.minecraft` folder (mods, configs, worlds, servers, Essential data). The instance icon is kept. |
-| **Pandora-installed modpack inside an instance** | Pandora keeps modpacks as a `.mrpack` file inside `mods/` and unpacks it every time you launch. AMYDORA unpacks it once during import: it downloads every client mod (SHA-1 verified, 8 at a time), adds pack override files that are missing without overwriting your settings, and uses the pack's own Fabric loader version. Mods you switched off in Pandora stay switched off (renamed to `.jar.disabled`). The original `.mrpack` moves to `pandora-modpacks/`. |
+| **Pandora-installed modpack inside an instance** | Pandora keeps modpacks as a `.mrpack` file inside `mods/` and unpacks it every time you launch. AMADORA unpacks it once during import: it downloads every client mod (SHA-1 verified, 8 at a time), adds pack override files that are missing without overwriting your settings, and uses the pack's own Fabric loader version. Mods you switched off in Pandora stay switched off (renamed to `.jar.disabled`). The original `.mrpack` moves to `pandora-modpacks/`. |
 | **Modrinth modpack** (`.mrpack`) | Installed through Amethyst's Modrinth installer with its normal progress bar. |
 | **CurseForge modpack** (`.zip` with `manifest.json`) | Extracts `overrides/` and downloads each listed file from CurseForge. Files whose authors block third-party downloads are listed so you can add them by hand. |
 | **Plain `.minecraft` zip** or **`.forge`** | Finds the folder containing `mods/`, `saves/` or `config/` and imports it. `.forge` isn't a standard format, so it's read as a zip. |
@@ -47,20 +54,20 @@ The IPA bundles **Java 8, 17, 21 and 25**. The right one is picked from each Min
 | 26.1 - 26.3 | 25 |
 
 ### LWJGL 3.4.1 and SDL3 for Minecraft 26.1 - 26.3
-Amethyst replaces Minecraft's own LWJGL with an iOS build, and upstream only ships LWJGL 3.3.3. Minecraft 26.1 and 26.2 need **LWJGL 3.4.1**, so AMYDORA also bundles an iOS build of 3.4.1 (built from [Amethyst's LWJGL fork](https://github.com/AngelAuraMC/lwjgl3/tree/wip/rebase_3.4.1)). It also adds the GLFW functions those versions call that Amethyst's iOS GLFW layer was missing: monitor name, platform check, and IME text-input callbacks. The launcher reads each version's library list and picks 3.4.1 when the version asks for LWJGL 3.4 or newer. Every other version keeps 3.3.3, exactly as in Amethyst. Minecraft 26.3 moved its window and input from GLFW to **SDL3**. There's no SDL3 for Amethyst's iOS view, so AMYDORA includes an SDL3 bridge (`JavaApp/src_lwjgl341/org/lwjgl/sdl`). It implements the SDL functions 26.3 calls on top of Amethyst's iOS GLFW layer: every SDL window shares the one iOS surface and OpenGL context, and touch, on-screen keyboard and mouse input are translated into SDL key, text, mouse and window events with real SDL scancodes and keycodes. 26.3 asks for LWJGL 3.4.3, but every LWJGL function it calls exists in the bundled 3.4.1. `tools/check_lwjgl_refs.py` checks a `client.jar` against the bundled LWJGL and lists any method it calls that's missing.
+Amethyst replaces Minecraft's own LWJGL with an iOS build, and upstream only ships LWJGL 3.3.3. Minecraft 26.1 and 26.2 need **LWJGL 3.4.1**, so AMADORA also bundles an iOS build of 3.4.1 (built from [Amethyst's LWJGL fork](https://github.com/AngelAuraMC/lwjgl3/tree/wip/rebase_3.4.1)). It also adds the GLFW functions those versions call that Amethyst's iOS GLFW layer was missing: monitor name, platform check, and IME text-input callbacks. The launcher reads each version's library list and picks 3.4.1 when the version asks for LWJGL 3.4 or newer. Every other version keeps 3.3.3, exactly as in Amethyst. Minecraft 26.3 moved its window and input from GLFW to **SDL3**. There's no SDL3 for Amethyst's iOS view, so AMADORA includes an SDL3 bridge (`JavaApp/src_lwjgl341/org/lwjgl/sdl`). It implements the SDL functions 26.3 calls on top of Amethyst's iOS GLFW layer: every SDL window shares the one iOS surface and OpenGL context, and touch, on-screen keyboard and mouse input are translated into SDL key, text, mouse and window events with real SDL scancodes and keycodes. 26.3 asks for LWJGL 3.4.3, but every LWJGL function it calls exists in the bundled 3.4.1. `tools/check_lwjgl_refs.py` checks a `client.jar` against the bundled LWJGL and lists any method it calls that's missing.
 
 ### Builds without a Mac
-Upstream builds on a private self-hosted Mac. AMYDORA builds on GitHub's hosted macOS runner (`.github/workflows/pandora.yml`), so every push produces an IPA under **Actions**.
+Upstream builds on a private self-hosted Mac. AMADORA builds on GitHub's hosted macOS runner (`.github/workflows/pandora.yml`), so every push produces an IPA under **Actions**.
 
 ## Install and play (iPhone with LiveContainer + StikDebug)
 
-1. **Install:** download `AMYDORA_V0.1.ipa` from [Releases](../../releases/latest) on your iPhone, open LiveContainer, tap **+** and pick the IPA.
-2. **Enable JIT:** launch AMYDORA from LiveContainer. When it asks for JIT, it opens StikDebug for you (`stikjit://` hand-off). On iOS 26+ devices it sends the Universal JIT script automatically. If StikDebug asks for a script, long-press AMYDORA in StikDebug, tap **Assign Script**, and pick `UniversalJIT26.js` from AMYDORA's data folder (AMYDORA copies it there for you).
+1. **Install:** download `AMADORA_V0.2.ipa` from [Releases](../../releases/latest) on your iPhone, open LiveContainer, tap **+** and pick the IPA.
+2. **Enable JIT:** launch AMADORA from LiveContainer. When it asks for JIT, it opens StikDebug for you (`stikjit://` hand-off). On iOS 26+ devices it sends the Universal JIT script automatically. If StikDebug asks for a script, long-press AMADORA in StikDebug, tap **Assign Script**, and pick `UniversalJIT26.js` from AMADORA's data folder (AMADORA copies it there for you).
 3. **Sign in:** add your **Microsoft account** under Accounts. You need it to download Minecraft and to play on online servers. Essential's own login and social features work through your Minecraft account.
 4. **Bring your PC instances over:**
    - On your PC, run [`tools/export-instances.ps1`](tools/export-instances.ps1) (PowerShell). It zips every Pandora instance from `%APPDATA%\PandoraLauncher\instances` into an `export` folder next to the script, skipping logs, crash reports and downloads.
    - Send the zip to your iPhone with AirDrop, iCloud Drive, or a USB cable to Files.
-   - In AMYDORA, go to **Profiles > Add Custom Modpack** and pick the zip. Keep the app open until the report appears.
+   - In AMADORA, go to **Profiles > Add Custom Modpack** and pick the zip. Keep the app open until the report appears.
 5. **Play:** select the new profile and tap **Play**. Your server list comes with the instance, so you can join the same servers as on PC.
 
 ### Controls
@@ -71,20 +78,20 @@ These come straight from Amethyst:
 - If your layout is missing either button, add it in the controls editor as a special button ("Virtual Mouse" / "Keyboard").
 - **Hardware:** Bluetooth keyboards, mice and game controllers work too.
 
-## Known limits in V0.1
+## Known limits in V0.2
 - The interface is Amethyst's, renamed; the Pandora-style screens aren't built yet.
 - Mod Doctor only understands Fabric and Quilt mods (`fabric.mod.json`). It doesn't check version ranges, so a mod that's present but the wrong version isn't flagged.
 - Mod Doctor doesn't run automatically after a `.mrpack` install; use the long-press action.
-- Minecraft 26.3 runs through AMYDORA's SDL3 bridge, which is new. Message boxes are logged instead of shown, the Vulkan renderer is turned off (OpenGL only), and the text-input candidate window isn't supported.
+- Minecraft 26.3 runs through AMADORA's SDL3 bridge, which is new. Message boxes are logged instead of shown, the Vulkan renderer is turned off (OpenGL only), and the text-input candidate window isn't supported.
 - Forge and NeoForge loaders have to be installed from + > Forge after import.
 - Some CurseForge files can't be downloaded by any third-party launcher.
 - Very large instances (multi-GB worlds or Distant Horizons data) take a while to copy and import.
 
 ## Building it yourself
-Push to your fork and GitHub Actions builds the IPA (`Build AMYDORA IPA` workflow). Locally on a Mac: `brew install ldid make`, install a JDK 8, then `gmake package BOOTJDK=<jdk8>/bin`.
+Push to your fork and GitHub Actions builds the IPA (`Build AMADORA IPA` workflow). Locally on a Mac: `brew install ldid make`, install a JDK 8, then `gmake package BOOTJDK=<jdk8>/bin`.
 
 ## Credits and license
-AMYDORA is a fork of [Angel Aura Amethyst](https://github.com/AngelAuraMC/Amethyst-iOS) and is licensed under the **GPL-3.0**, same as upstream. The idea and the instance format come from [Pandora Launcher](https://github.com/Moulberry/PandoraLauncher). AMYDORA isn't affiliated with or endorsed by the Amethyst or Pandora Launcher teams.
+AMADORA is a fork of [Angel Aura Amethyst](https://github.com/AngelAuraMC/Amethyst-iOS) and is licensed under the **GPL-3.0**, same as upstream. The idea and the instance format come from [Pandora Launcher](https://github.com/Moulberry/PandoraLauncher). AMADORA isn't affiliated with or endorsed by the Amethyst or Pandora Launcher teams.
 
 ---
 

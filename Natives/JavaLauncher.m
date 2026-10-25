@@ -133,13 +133,13 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
                 // if this is inside LiveContainer, we assign script ourselves and prompt user to restart Amethyst
                 lcAppInfo[@"jitLaunchScriptJs"] = [[NSData dataWithContentsOfFile:inBundleScriptPath] base64EncodedStringWithOptions:0];
                 if([lcAppInfo writeToFile:lcAppInfoPath atomically:YES]) {
-                    showDialog(localize(@"Error", nil), @"AMYDORA was launched with a legacy script. We have updated the script to Universal, please restart LiveContainer to continue.");
+                    showDialog(localize(@"Error", nil), @"AMADORA was launched with a legacy script. We have updated the script to Universal, please restart LiveContainer to continue.");
                     [PLLogOutputView handleExitCode:1];
                     return 1;
                 }
             }
             [NSFileManager.defaultManager copyItemAtPath:inBundleScriptPath toPath:[NSString stringWithFormat:@"%s/UniversalJIT26.js", getenv("AME_HOME")] error:nil];
-            showDialog(localize(@"Error", nil), @"Support for legacy script has been removed. Please switch to Universal JIT script. To import it, long-press on AMYDORA when enabling JIT in StikDebug and tap \"Assign Script\", then go to AMYDORA's Documents directory and pick it. (on sideloaded StikDebug, the builtin script is named Amethyst-MeloNX.js)");
+            showDialog(localize(@"Error", nil), @"Support for legacy script has been removed. Please switch to Universal JIT script. To import it, long-press on AMADORA when enabling JIT in StikDebug and tap \"Assign Script\", then go to AMADORA's Documents directory and pick it. (on sideloaded StikDebug, the builtin script is named Amethyst-MeloNX.js)");
             [PLLogOutputView handleExitCode:1];
             return 1;
         }
@@ -257,7 +257,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         // LWJGL 3.4.1 natives first, everything else (OpenAL, JNA, renderers) still comes from Frameworks
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@/Frameworks", lwjgl34Path, NSBundle.mainBundle.bundlePath].UTF8String;
         // 26.x would find MoltenVK and try its Vulkan backend; keep it on Amethyst's OpenGL renderers
-        margv[++margc] = "-Dorg.lwjgl.vulkan.libname=amydora-vulkan-disabled";
+        margv[++margc] = "-Dorg.lwjgl.vulkan.libname=amadora-vulkan-disabled";
     } else {
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
     }

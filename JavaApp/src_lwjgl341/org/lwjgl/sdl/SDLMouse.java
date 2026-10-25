@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -11,9 +11,9 @@ public final class SDLMouse {
     private SDLMouse() {}
 
     public static int SDL_GetMouseState(FloatBuffer x, FloatBuffer y) {
-        if (x != null) x.put(x.position(), AmydoraSDL.mouseX);
-        if (y != null) y.put(y.position(), AmydoraSDL.mouseY);
-        return AmydoraSDL.buttonMask;
+        if (x != null) x.put(x.position(), AmadoraSDL.mouseX);
+        if (y != null) y.put(y.position(), AmadoraSDL.mouseY);
+        return AmadoraSDL.buttonMask;
     }
 
     public static int SDL_GetGlobalMouseState(FloatBuffer x, FloatBuffer y) {
@@ -21,16 +21,16 @@ public final class SDLMouse {
     }
 
     public static boolean SDL_SetWindowRelativeMouseMode(long window, boolean enabled) {
-        if (AmydoraSDL.context != 0) {
-            GLFW.glfwSetInputMode(AmydoraSDL.context, GLFW.GLFW_CURSOR, enabled ? GLFW.GLFW_CURSOR_DISABLED : GLFW.GLFW_CURSOR_NORMAL);
+        if (AmadoraSDL.context != 0) {
+            GLFW.glfwSetInputMode(AmadoraSDL.context, GLFW.GLFW_CURSOR, enabled ? GLFW.GLFW_CURSOR_DISABLED : GLFW.GLFW_CURSOR_NORMAL);
         }
         return true;
     }
 
     public static void SDL_WarpMouseInWindow(long window, float x, float y) {
-        AmydoraSDL.mouseX = x;
-        AmydoraSDL.mouseY = y;
-        if (AmydoraSDL.context != 0) GLFW.glfwSetCursorPos(AmydoraSDL.context, x, y);
+        AmadoraSDL.mouseX = x;
+        AmadoraSDL.mouseY = y;
+        if (AmadoraSDL.context != 0) GLFW.glfwSetCursorPos(AmadoraSDL.context, x, y);
     }
 
     public static long SDL_CreateSystemCursor(int id) {

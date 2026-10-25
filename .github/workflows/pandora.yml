@@ -1,4 +1,4 @@
-name: Build AMYDORA IPA
+name: Build AMADORA IPA
 
 on:
   push:
@@ -28,11 +28,11 @@ jobs:
           gmake -j$(sysctl -n hw.ncpu) package BOOTJDK="$JAVA_HOME/bin" RELEASE=1
 
       - name: Name IPA
-        run: mv artifacts/org.angelauramc.amethyst-*-ios.ipa artifacts/AMYDORA_V0.1.ipa
+        run: mv artifacts/org.angelauramc.amethyst-*-ios.ipa artifacts/AMADORA_V0.2.ipa
 
       # Full IPA bundles Java 8, 17, 21 and 25 (Minecraft 1.8 through 26.x)
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AMYDORA_V0.1
-          path: artifacts/AMYDORA_V0.1.ipa
+          name: AMADORA_V0.2
+          path: artifacts/AMADORA_V0.2.ipa

@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -14,7 +14,7 @@ public final class SDL {
 
     // There's no libSDL3 on iOS; Minecraft only loads this to check that SDL is available
     private static final SharedLibrary LIBRARY = new SharedLibrary() {
-        @Override public String getName() { return "SDL3 (AMYDORA iOS bridge)"; }
+        @Override public String getName() { return "SDL3 (AMADORA iOS bridge)"; }
         @Override public String getPath() { return null; }
         @Override public long getFunctionAddress(ByteBuffer functionName) { return NULL; }
         @Override public long address() { return NULL; }

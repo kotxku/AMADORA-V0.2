@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -9,11 +9,11 @@ public final class SDLKeyboard {
     private SDLKeyboard() {}
 
     public static ByteBuffer SDL_GetKeyboardState() {
-        return AmydoraSDL.keyboardState;
+        return AmadoraSDL.keyboardState;
     }
 
     public static short SDL_GetModState() {
-        return AmydoraSDL.modState;
+        return AmadoraSDL.modState;
     }
 
     public static int SDL_GetKeyFromScancode(int scancode, short modstate, boolean keyEvent) {
@@ -26,12 +26,12 @@ public final class SDLKeyboard {
 
     // Text comes from Amethyst's on-screen or hardware keyboard; this only gates text events like SDL does
     public static boolean SDL_StartTextInput(long window) {
-        AmydoraSDL.textInput = true;
+        AmadoraSDL.textInput = true;
         return true;
     }
 
     public static boolean SDL_StopTextInput(long window) {
-        AmydoraSDL.textInput = false;
+        AmadoraSDL.textInput = false;
         return true;
     }
 

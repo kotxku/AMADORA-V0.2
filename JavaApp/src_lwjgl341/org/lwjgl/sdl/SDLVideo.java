@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -20,21 +20,21 @@ public final class SDLVideo {
     // --- Windows: every SDL window shares the one iOS surface
 
     public static long SDL_CreateWindow(CharSequence title, int w, int h, long flags) {
-        return AmydoraSDL.createWindow(flags);
+        return AmadoraSDL.createWindow(flags);
     }
 
     public static void SDL_DestroyWindow(long window) {
-        AmydoraSDL.destroyWindow(window);
+        AmadoraSDL.destroyWindow(window);
     }
 
     public static long SDL_GetWindowFlags(long window) {
-        AmydoraSDL.Window w = AmydoraSDL.windows.get(window);
-        return w == null ? 0 : w.flags | AmydoraSDL.WINDOW_INPUT_FOCUS | AmydoraSDL.WINDOW_MOUSE_FOCUS;
+        AmadoraSDL.Window w = AmadoraSDL.windows.get(window);
+        return w == null ? 0 : w.flags | AmadoraSDL.WINDOW_INPUT_FOCUS | AmadoraSDL.WINDOW_MOUSE_FOCUS;
     }
 
     public static boolean SDL_SetWindowFullscreen(long window, boolean fullscreen) {
-        AmydoraSDL.Window w = AmydoraSDL.windows.get(window);
-        if (w != null) w.flags = fullscreen ? w.flags | AmydoraSDL.WINDOW_FULLSCREEN : w.flags & ~AmydoraSDL.WINDOW_FULLSCREEN;
+        AmadoraSDL.Window w = AmadoraSDL.windows.get(window);
+        if (w != null) w.flags = fullscreen ? w.flags | AmadoraSDL.WINDOW_FULLSCREEN : w.flags & ~AmadoraSDL.WINDOW_FULLSCREEN;
         return true;
     }
 
@@ -64,7 +64,7 @@ public final class SDLVideo {
     }
 
     public static boolean SDL_GetWindowSizeInPixels(long window, IntBuffer w, IntBuffer h) {
-        int[] size = AmydoraSDL.framebufferSize();
+        int[] size = AmadoraSDL.framebufferSize();
         if (w != null) w.put(w.position(), size[0]);
         if (h != null) h.put(h.position(), size[1]);
         return true;
@@ -76,18 +76,18 @@ public final class SDLVideo {
     }
 
     public static String SDL_GetCurrentVideoDriver() {
-        return "uikit (AMYDORA)";
+        return "uikit (AMADORA)";
     }
 
     // --- Displays: the iOS screen is the only one
 
     public static int SDL_GetPrimaryDisplay() {
-        return AmydoraSDL.DISPLAY_ID;
+        return AmadoraSDL.DISPLAY_ID;
     }
 
     public static IntBuffer SDL_GetDisplays() {
         IntBuffer displays = memAllocInt(1);
-        displays.put(0, AmydoraSDL.DISPLAY_ID);
+        displays.put(0, AmadoraSDL.DISPLAY_ID);
         return displays;
     }
 
@@ -96,11 +96,11 @@ public final class SDLVideo {
     }
 
     public static int SDL_GetDisplayForWindow(long window) {
-        return AmydoraSDL.DISPLAY_ID;
+        return AmadoraSDL.DISPLAY_ID;
     }
 
     public static boolean SDL_GetDisplayBounds(int displayID, SDL_Rect rect) {
-        int[] size = AmydoraSDL.framebufferSize();
+        int[] size = AmadoraSDL.framebufferSize();
         long a = rect.address();
         memPutInt(a + SDL_Rect.X, 0);
         memPutInt(a + SDL_Rect.Y, 0);
@@ -110,21 +110,21 @@ public final class SDLVideo {
     }
 
     public static SDL_DisplayMode SDL_GetCurrentDisplayMode(int displayID) {
-        return AmydoraSDL.displayMode();
+        return AmadoraSDL.displayMode();
     }
 
     public static SDL_DisplayMode SDL_GetDesktopDisplayMode(int displayID) {
-        return AmydoraSDL.displayMode();
+        return AmadoraSDL.displayMode();
     }
 
     public static PointerBuffer SDL_GetFullscreenDisplayModes(int displayID) {
         PointerBuffer modes = memAllocPointer(1);
-        modes.put(0, AmydoraSDL.displayMode().address());
+        modes.put(0, AmadoraSDL.displayMode().address());
         return modes;
     }
 
     public static boolean SDL_GetClosestFullscreenDisplayMode(int displayID, int w, int h, float refreshRate, boolean includeHighDensityModes, SDL_DisplayMode closest) {
-        AmydoraSDL.fillDisplayMode(closest.address());
+        AmadoraSDL.fillDisplayMode(closest.address());
         return true;
     }
 
@@ -142,19 +142,19 @@ public final class SDLVideo {
     }
 
     public static boolean SDL_GL_SetAttribute(int attr, int value) {
-        AmydoraSDL.glAttributes.put(attr, value);
+        AmadoraSDL.glAttributes.put(attr, value);
         return true;
     }
 
     public static boolean SDL_GL_GetAttribute(int attr, IntBuffer value) {
-        Integer stored = AmydoraSDL.glAttributes.get(attr);
+        Integer stored = AmadoraSDL.glAttributes.get(attr);
         int result = stored != null ? stored : attr == GL_CONTEXT_MAJOR_VERSION || attr == GL_CONTEXT_MINOR_VERSION ? 3 : 0;
         value.put(value.position(), result);
         return true;
     }
 
     public static long SDL_GL_CreateContext(long window) {
-        return AmydoraSDL.createContext();
+        return AmadoraSDL.createContext();
     }
 
     public static boolean SDL_GL_DestroyContext(long context) {
@@ -172,7 +172,7 @@ public final class SDLVideo {
     }
 
     public static boolean SDL_GL_SwapWindow(long window) {
-        if (AmydoraSDL.context != 0) GLFW.glfwSwapBuffers(AmydoraSDL.context);
+        if (AmadoraSDL.context != 0) GLFW.glfwSwapBuffers(AmadoraSDL.context);
         return true;
     }
 }

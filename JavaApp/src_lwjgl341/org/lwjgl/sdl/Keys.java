@@ -1,5 +1,5 @@
 /*
- * AMYDORA: GLFW key codes (what Amethyst's controls send) to SDL3 scancodes and keycodes (what Minecraft 26.3 reads).
+ * AMADORA: GLFW key codes (what Amethyst's controls send) to SDL3 scancodes and keycodes (what Minecraft 26.3 reads).
  * Keycodes follow a US layout, like SDL's default keymap.
  */
 package org.lwjgl.sdl;
@@ -8,8 +8,8 @@ final class Keys {
     private Keys() {}
 
     private static final int[] GLFW_TO_SCANCODE = new int[349];
-    private static final int[] SCANCODE_TO_KEYCODE = new int[AmydoraSDL.SCANCODE_COUNT];
-    private static final String[] SCANCODE_NAMES = new String[AmydoraSDL.SCANCODE_COUNT];
+    private static final int[] SCANCODE_TO_KEYCODE = new int[AmadoraSDL.SCANCODE_COUNT];
+    private static final String[] SCANCODE_NAMES = new String[AmadoraSDL.SCANCODE_COUNT];
 
     private static void map(int glfwKey, int scancode, int keycode, String name) {
         GLFW_TO_SCANCODE[glfwKey] = scancode;
@@ -19,7 +19,7 @@ final class Keys {
 
     /** Keys without a character get scancode | SDLK_SCANCODE_MASK, as in SDL. */
     private static void mapSpecial(int glfwKey, int scancode, String name) {
-        map(glfwKey, scancode, scancode | AmydoraSDL.KEYCODE_SCANCODE_MASK, name);
+        map(glfwKey, scancode, scancode | AmadoraSDL.KEYCODE_SCANCODE_MASK, name);
     }
 
     static {
@@ -87,13 +87,13 @@ final class Keys {
     static int keycodeForScancode(int scancode, short mod) {
         if (scancode <= 0 || scancode >= SCANCODE_TO_KEYCODE.length) return 0;
         int key = SCANCODE_TO_KEYCODE[scancode];
-        if (key == 0) return scancode | AmydoraSDL.KEYCODE_SCANCODE_MASK;
+        if (key == 0) return scancode | AmadoraSDL.KEYCODE_SCANCODE_MASK;
         return key;
     }
 
     static String nameForKeycode(int keycode) {
-        if ((keycode & AmydoraSDL.KEYCODE_SCANCODE_MASK) != 0) {
-            int scancode = keycode & ~AmydoraSDL.KEYCODE_SCANCODE_MASK;
+        if ((keycode & AmadoraSDL.KEYCODE_SCANCODE_MASK) != 0) {
+            int scancode = keycode & ~AmadoraSDL.KEYCODE_SCANCODE_MASK;
             return scancode < SCANCODE_NAMES.length && SCANCODE_NAMES[scancode] != null ? SCANCODE_NAMES[scancode] : "";
         }
         for (int sc = 0; sc < SCANCODE_TO_KEYCODE.length; sc++) {

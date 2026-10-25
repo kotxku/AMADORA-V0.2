@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 emulation for Minecraft 26.3+ on iOS.
+ * AMADORA: SDL3 emulation for Minecraft 26.3+ on iOS.
  * Minecraft 26.3 talks to SDL3 instead of GLFW. Amethyst's iOS surface, touch controls and on-screen
  * keyboard only drive the GLFW stub (org.lwjgl.glfw.GLFW), so the SDL classes in this package are
  * implemented on top of it: one GLFW context backs every SDL window, and GLFW callbacks become SDL events.
@@ -18,8 +18,8 @@ import org.lwjgl.system.MemoryStack;
 
 import static org.lwjgl.system.MemoryUtil.*;
 
-public final class AmydoraSDL {
-    private AmydoraSDL() {}
+public final class AmadoraSDL {
+    private AmadoraSDL() {}
 
     // SDL3 event types
     static final int EVENT_QUIT = 0x100;

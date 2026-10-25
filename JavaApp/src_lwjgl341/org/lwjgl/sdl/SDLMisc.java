@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -12,7 +12,7 @@ public final class SDLMisc {
             Runtime.getRuntime().exec(new String[]{"open", url.toString()});
             return true;
         } catch (Exception e) {
-            AmydoraSDL.setError(e.toString());
+            AmadoraSDL.setError(e.toString());
             return false;
         }
     }

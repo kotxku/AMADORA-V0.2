@@ -1,5 +1,5 @@
 /*
- * AMYDORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmydoraSDL. Only the functions Minecraft 26.3 calls.
+ * AMADORA: SDL3 on top of Amethyst's iOS GLFW layer, see AmadoraSDL. Only the functions Minecraft 26.3 calls.
  */
 package org.lwjgl.sdl;
 
@@ -15,7 +15,7 @@ public final class SDLVulkan {
 
     // Minecraft falls back to OpenGL when Vulkan isn't available; on iOS rendering goes through Amethyst's GL renderers
     public static boolean SDL_Vulkan_LoadLibrary(CharSequence path) {
-        AmydoraSDL.setError("Vulkan isn't supported by AMYDORA on iOS");
+        AmadoraSDL.setError("Vulkan isn't supported by AMADORA on iOS");
         return false;
     }
 
@@ -30,7 +30,7 @@ public final class SDLVulkan {
     }
 
     public static boolean SDL_Vulkan_CreateSurface(long window, VkInstance instance, VkAllocationCallbacks allocator, LongBuffer surface) {
-        AmydoraSDL.setError("Vulkan isn't supported by AMYDORA on iOS");
+        AmadoraSDL.setError("Vulkan isn't supported by AMADORA on iOS");
         return false;
     }
 

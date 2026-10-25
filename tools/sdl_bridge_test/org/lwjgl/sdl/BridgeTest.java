@@ -2,12 +2,12 @@ package org.lwjgl.sdl;
 
 import java.lang.reflect.Method;
 
-// Desktop check of the AMYDORA SDL bridge: queue events the way the GLFW callbacks do, read them back with LWJGL's SDL structs like Minecraft does.
+// Desktop check of the AMADORA SDL bridge: queue events the way the GLFW callbacks do, read them back with LWJGL's SDL structs like Minecraft does.
 public class BridgeTest {
     static Method push;
 
-    static AmydoraSDL.Event push(int type, int i1, int i2) throws Exception {
-        return (AmydoraSDL.Event) push.invoke(null, type, i1, i2);
+    static AmadoraSDL.Event push(int type, int i1, int i2) throws Exception {
+        return (AmadoraSDL.Event) push.invoke(null, type, i1, i2);
     }
 
     static void check(boolean ok, String what) {
@@ -16,24 +16,24 @@ public class BridgeTest {
     }
 
     public static void main(String[] args) throws Exception {
-        push = AmydoraSDL.class.getDeclaredMethod("push", int.class, int.class, int.class);
+        push = AmadoraSDL.class.getDeclaredMethod("push", int.class, int.class, int.class);
         push.setAccessible(true);
-        AmydoraSDL.windows.put(0x1000L, new AmydoraSDL.Window(1, 0x8 | 0x2)); // hidden probe window
+        AmadoraSDL.windows.put(0x1000L, new AmadoraSDL.Window(1, 0x8 | 0x2)); // hidden probe window
         long game = 0x1001L;
-        AmydoraSDL.windows.put(game, new AmydoraSDL.Window(2, 0x2020 | 0x2));
+        AmadoraSDL.windows.put(game, new AmadoraSDL.Window(2, 0x2020 | 0x2));
 
         int sc = Keys.scancodeForGlfwKey(87); // GLFW_KEY_W
-        AmydoraSDL.Event k = push(AmydoraSDL.EVENT_KEY_DOWN, sc, Keys.keycodeForScancode(sc, (short) 0));
+        AmadoraSDL.Event k = push(AmadoraSDL.EVENT_KEY_DOWN, sc, Keys.keycodeForScancode(sc, (short) 0));
         k.mod = Keys.KMOD_LSHIFT;
         k.flag = true;
-        AmydoraSDL.Event m = push(AmydoraSDL.EVENT_MOUSE_MOTION, 0, 0);
+        AmadoraSDL.Event m = push(AmadoraSDL.EVENT_MOUSE_MOTION, 0, 0);
         m.f1 = 10; m.f2 = 20; m.f3 = 3; m.f4 = -4;
-        AmydoraSDL.Event b = push(AmydoraSDL.EVENT_MOUSE_BUTTON_DOWN, 3, 0);
+        AmadoraSDL.Event b = push(AmadoraSDL.EVENT_MOUSE_BUTTON_DOWN, 3, 0);
         b.flag = true;
-        AmydoraSDL.Event w = push(AmydoraSDL.EVENT_MOUSE_WHEEL, 0, -1);
+        AmadoraSDL.Event w = push(AmadoraSDL.EVENT_MOUSE_WHEEL, 0, -1);
         w.f2 = -1f;
-        push(AmydoraSDL.EVENT_TEXT_INPUT, 0, 0).text = "é";
-        push(AmydoraSDL.EVENT_WINDOW_RESIZED, 2556, 1179);
+        push(AmadoraSDL.EVENT_TEXT_INPUT, 0, 0).text = "é";
+        push(AmadoraSDL.EVENT_WINDOW_RESIZED, 2556, 1179);
 
         SDL_Event e = SDL_Event.malloc();
         check(SDLEvents.SDL_PollEvent(e) && e.type() == 0x300, "key down type");
