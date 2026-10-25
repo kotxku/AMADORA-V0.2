@@ -10,7 +10,7 @@ WORK="$SRC/build/ios-dh"
 
 # DH relocates com.github.luben.zstd -> dhcomgithubluben.zstd; apply the same rename to every JNI symbol and class string
 rm -rf "$WORK" && mkdir -p "$WORK" && cp -R "$SRC/src/main/native/." "$WORK/"
-grep -rl luben "$WORK" | xargs sed -i '' -e 's/Java_com_github_luben_zstd_/Java_dhcomgithubluben_zstd_/g' \
+grep -rl luben "$WORK" | xargs sed -i '' -e 's/com_github_luben_zstd_/dhcomgithubluben_zstd_/g' \
     -e 's#com/github/luben/zstd/#dhcomgithubluben/zstd/#g'
 if grep -rnE 'com_github_luben|com/github/luben' "$WORK"; then echo "unrelocated references left"; exit 1; fi
 
