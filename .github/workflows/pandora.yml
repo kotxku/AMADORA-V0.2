@@ -34,6 +34,12 @@ jobs:
           git clone --depth 1 -b v1.5.7-12 https://github.com/luben/zstd-jni "$RUNNER_TEMP/zstd-jni"
           bash tools/build_zstd_jni_ios.sh "$RUNNER_TEMP/zstd-jni" Natives/build/libzstd-jni_dh-1.5.7-12.dylib
 
+      # Distant Horizons' relocated sqlite-jdbc; DH searches java.library.path (which includes Frameworks) for it
+      - name: Build sqlite-jdbc (Distant Horizons) for iOS
+        run: |
+          git clone --depth 1 -b 3.53.2.1 https://github.com/xerial/sqlite-jdbc "$RUNNER_TEMP/sqlite-jdbc"
+          bash tools/build_sqlite_jdbc_ios.sh "$RUNNER_TEMP/sqlite-jdbc" Natives/build/libsqlitejdbc.dylib
+
       - name: Build IPA
         run: |
           export PATH="$(brew --prefix)/bin:$PATH"

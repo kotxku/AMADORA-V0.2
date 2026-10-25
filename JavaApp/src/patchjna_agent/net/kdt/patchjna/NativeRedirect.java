@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /**
  * Mods extract their natives to tmp/ or a cache dir and System.load them, which iOS refuses because the copies are
@@ -22,34 +23,65 @@ import java.util.function.Function;
 public class NativeRedirect implements Function<String, String> {
     private static final String TAG = "[NativeRedirect] ";
     private static final Set<String> TEMP_DIRS = new HashSet<>(Arrays.asList("tmp", "temp", "cache", "caches", ".cache"));
+    private static final Pattern RANDOM_SUFFIX = Pattern.compile("[0-9A-Fa-f-]*");
     private static List<File> signedLibs;
 
-    // Called from the synthetic methods through the system class loader, so Knot's class path isolation never applies
+    // Called from the synthetic methods through the system class loader, so Knot's class path isolation never applies.
+    // Logs exactly one line per load so a missing line always means the call never reached the hook.
     public String apply(String path) {
-        File file = new File(path);
-        List<File> libs = signedLibs();
-        if (!isTempOrCache(file) || libs.contains(file.getAbsoluteFile())) return path;
-        String name = stripExtension(file.getName());
-        File best = null;
-        for (File lib : libs) {
-            String libName = stripExtension(lib.getName());
-            // File.createTempFile and most extractors append digits, hex or a UUID to the original name.
-            // shortcut: a bare "libfoo" would also match "libfoo-2<random>"; bundle versioned names, as DH's are, to avoid that
-            if (name.startsWith(libName) && name.substring(libName.length()).matches("[0-9A-Fa-f-]*")
-                    && (best == null || libName.length() > stripExtension(best.getName()).length())) {
-                best = lib;
+        try {
+            File file = new File(path);
+            List<File> libs = signedLibs();
+            if (libs.contains(file.getAbsoluteFile()) || !isTempOrCache(file)) {
+                System.out.println(TAG + "pass-through: " + path);
+                return path;
             }
-        }
-        if (best == null) {
-            System.out.println(TAG + "miss: " + path + " has no signed match for '" + name
-                    + "' in java.library.path; this mod needs a bundled library");
+            File match = match(file.getName(), libs);
+            if (match == null) {
+                System.out.println(TAG + "miss: " + path + " has no signed match in java.library.path; this mod needs a bundled library");
+                return path;
+            }
+            System.out.println(TAG + "hit: " + path + " -> " + match);
+            return match.getPath();
+        } catch (Throwable e) {
+            System.out.println(TAG + "error: " + path + " left unchanged: " + e);
             return path;
         }
-        System.out.println(TAG + path + " -> " + best);
-        return best.getPath();
+    }
+
+    // Extractors wrap the original name in random parts: File.createTempFile appends digits ("libzstd-jni_dh-1.5.7-12<digits>"),
+    // sqlite-jdbc prefixes a version and UUID ("sqlite-3.53.2.1-<uuid>-libsqlitejdbc"). Longest bundled name wins.
+    // shortcut: a bare "libfoo" would also match "libfoo-2<random>"; bundle versioned names, as DH's are, to avoid that
+    static File match(String fileName, List<File> libs) {
+        String name = stripExtension(fileName);
+        File best = null;
+        int bestLength = 0;
+        for (File lib : libs) {
+            String base = stripExtension(lib.getName());
+            // Some extractors drop the "lib" prefix; too short a key would match unrelated names
+            String[] keys = base.startsWith("lib") && base.length() >= 7 ? new String[]{base, base.substring(3)} : new String[]{base};
+            for (String key : keys) {
+                if (key.length() > bestLength && occursAsName(name, key)) {
+                    best = lib;
+                    bestLength = key.length();
+                }
+            }
+        }
+        return best;
+    }
+
+    private static boolean occursAsName(String name, String key) {
+        for (int i = name.indexOf(key); i >= 0; i = name.indexOf(key, i + 1)) {
+            boolean atBoundary = i == 0 || "-_.".indexOf(name.charAt(i - 1)) >= 0;
+            if (atBoundary && RANDOM_SUFFIX.matcher(name.substring(i + key.length())).matches()) return true;
+        }
+        return false;
     }
 
     private static boolean isTempOrCache(File file) {
+        String tmp = System.getProperty("java.io.tmpdir");
+        File tmpDir = tmp == null || tmp.isEmpty() ? null : new File(tmp).getAbsoluteFile();
+        if (tmpDir != null && tmpDir.getParent() != null && file.getAbsolutePath().startsWith(tmpDir.getPath())) return true;
         for (File dir = file.getAbsoluteFile().getParentFile(); dir != null; dir = dir.getParentFile()) {
             if (TEMP_DIRS.contains(dir.getName().toLowerCase(Locale.ROOT))) return true;
         }
