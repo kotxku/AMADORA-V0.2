@@ -141,8 +141,8 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
         showDialog(@"Unsupported file", @"Pick a .zip, .mrpack or .forge modpack or instance.");
         return;
     }
-    [self runInBackground:@"Importing modpack" work:^NSString *{
-        NSString *report = [PandoraImport importArchiveAtPath:path];
+    [self runInBackground:@"Importing modpack" work:^NSString *(void (^status)(NSString *)) {
+        NSString *report = [PandoraImport importArchiveAtPath:path progress:status];
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         return report;
     }];
@@ -151,18 +151,20 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 - (void)actionFixMissingModsForProfile:(NSDictionary *)profile {
     NSDictionary *info = [PandoraImport loaderInfoForVersionId:profile[@"lastVersionId"]];
     NSString *gameDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:profile[@"gameDir"] ?: @"."].stringByStandardizingPath;
-    [self runInBackground:@"Mod Doctor" work:^NSString *{
+    [self runInBackground:@"Mod Doctor" work:^NSString *(void (^status)(NSString *)) {
         return [ModDoctor fixMissingModsInGameDir:gameDir minecraftVersion:info[@"mc"] loader:info[@"loader"]];
     }];
 }
 
 // Shows a blocking alert while work runs off the main thread, then shows its report.
-- (void)runInBackground:(NSString *)title work:(NSString *(^)(void))work {
+- (void)runInBackground:(NSString *)title work:(NSString *(^)(void (^status)(NSString *)))work {
     UIAlertController *busy = [UIAlertController alertControllerWithTitle:title
         message:@"Big packs can take a few minutes. Keep the app open." preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:busy animated:YES completion:^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            NSString *report = work();
+            NSString *report = work(^(NSString *message) {
+                dispatch_async(dispatch_get_main_queue(), ^{ busy.message = message; });
+            });
             dispatch_async(dispatch_get_main_queue(), ^{
                 [busy dismissViewControllerAnimated:YES completion:^{
                     [PLProfiles updateCurrent];

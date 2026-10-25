@@ -20,6 +20,120 @@ static id typed(id obj, Class cls) {
     return @{@"loader": @"vanilla", @"mc": versionId ?: @""};
 }
 
+// Zip entries are untrusted: only relative paths that stay inside the destination
+static BOOL isSafeRelativePath(NSString *path) {
+    return path.length && ![path hasPrefix:@"/"] && ![[path componentsSeparatedByString:@"/"] containsObject:@".."];
+}
+
+// Streams one entry to disk; whole-file extraction would run out of memory on multi-GB worlds
++ (BOOL)extract:(UZKFileInfo *)info from:(UZKArchive *)archive to:(NSString *)dest error:(NSError **)error {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    if (info.isDirectory || [info.filename hasSuffix:@"/"]) {
+        return [fm createDirectoryAtPath:dest withIntermediateDirectories:YES attributes:nil error:error];
+    }
+    [fm createDirectoryAtPath:dest.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+    [fm createFileAtPath:dest contents:nil attributes:nil];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:dest];
+    BOOL extracted = handle && [archive extractBufferedDataFromFile:info.filename error:error action:^(NSData *chunk, CGFloat percent) {
+        [handle writeData:chunk];
+    }];
+    [handle closeFile];
+    return extracted;
+}
+
+// Pandora keeps installed modpacks as .mrpack files inside mods/ and unpacks them at every launch.
+// Unpack them once here, honouring mods the player switched off in Pandora. Returns notes for the report.
++ (NSArray<NSString *> *)expandPandoraModpacksIn:(NSString *)gameDir mcVersion:(NSString **)mcVersion loader:(NSString **)loader
+    loaderVersion:(NSString **)loaderVersion progress:(void (^)(NSString *))progress {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *modsDir = [gameDir stringByAppendingPathComponent:@"mods"];
+    NSArray<NSString *> *modFiles = [fm contentsOfDirectoryAtPath:modsDir error:nil];
+    NSMutableArray<NSString *> *notes = [NSMutableArray new];
+
+    // shortcut: disabled lists from every .aux.json apply to every pack (Pandora pairs them per pack); fine with one pack per instance
+    NSMutableSet *disabledIds = [NSMutableSet new], *disabledNames = [NSMutableSet new], *disabledFiles = [NSMutableSet new];
+    for (NSString *file in modFiles) {
+        if (![file hasSuffix:@".aux.json"]) continue;
+        NSDictionary *aux = typed([ModDoctor parseJSON:[NSData dataWithContentsOfFile:[modsDir stringByAppendingPathComponent:file]]], NSDictionary.class);
+        NSDictionary *children = typed(aux[@"disabled_children"], NSDictionary.class);
+        [disabledIds addObjectsFromArray:typed(children[@"disabled_ids"], NSArray.class) ?: @[]];
+        [disabledNames addObjectsFromArray:typed(children[@"disabled_names"], NSArray.class) ?: @[]];
+        [disabledFiles addObjectsFromArray:typed(children[@"disabled_filenames"], NSArray.class) ?: @[]];
+    }
+
+    for (NSString *file in modFiles) {
+        if (![file.pathExtension.lowercaseString isEqualToString:@"mrpack"]) continue;
+        NSString *packPath = [modsDir stringByAppendingPathComponent:file];
+        UZKArchive *pack = [[UZKArchive alloc] initWithPath:packPath error:nil];
+        NSDictionary *index = typed([ModDoctor parseJSON:[pack extractDataFromFile:@"modrinth.index.json" error:nil]], NSDictionary.class);
+        if (!index) {
+            [notes addObject:[NSString stringWithFormat:@"%@ isn't a valid Modrinth pack, so it was skipped.", file]];
+            continue;
+        }
+
+        NSDictionary *deps = typed(index[@"dependencies"], NSDictionary.class);
+        if (!*mcVersion) *mcVersion = typed(deps[@"minecraft"], NSString.class);
+        for (NSString *key in @[@"fabric-loader", @"quilt-loader", @"forge", @"neoforge"]) {
+            if (!typed(deps[key], NSString.class)) continue;
+            if ([*loader isEqualToString:@"vanilla"]) *loader = [key componentsSeparatedByString:@"-"].firstObject;
+            // The pack's own loader version is what it was tested with
+            if (!*loaderVersion) *loaderVersion = deps[key];
+            break;
+        }
+
+        NSArray *files = typed(index[@"files"], NSArray.class);
+        __block NSUInteger finished = 0, failed = 0, skipped = 0;
+        NSObject *lock = [NSObject new];
+        dispatch_semaphore_t slots = dispatch_semaphore_create(8);
+        dispatch_apply(files.count, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t i) {
+            NSDictionary *entry = typed(files[i], NSDictionary.class);
+            NSString *relPath = typed(entry[@"path"], NSString.class);
+            NSString *url = typed([typed(entry[@"downloads"], NSArray.class) firstObject], NSString.class);
+            NSString *sha1 = typed(typed(entry[@"hashes"], NSDictionary.class)[@"sha1"], NSString.class);
+            BOOL serverOnly = [typed(entry[@"env"], NSDictionary.class)[@"client"] isEqual:@"unsupported"];
+            BOOL ok = YES, skip = !url || serverOnly || !isSafeRelativePath(relPath) || [disabledFiles containsObject:relPath.lastPathComponent];
+            if (!skip) {
+                NSString *dest = [gameDir stringByAppendingPathComponent:relPath];
+                if (![fm fileExistsAtPath:dest]) {
+                    dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
+                    ok = [ModDoctor download:url toFile:dest sha1:sha1];
+                    dispatch_semaphore_signal(slots);
+                }
+                NSDictionary *info = ok ? [ModDoctor modInfoForJar:dest] : nil;
+                if ([disabledIds containsObject:info[@"id"] ?: @""] || [disabledNames containsObject:info[@"name"] ?: @""]) {
+                    [fm moveItemAtPath:dest toPath:[dest stringByAppendingString:@".disabled"] error:nil];
+                }
+            }
+            @synchronized (lock) {
+                if (skip) skipped++; else if (ok) finished++; else failed++;
+                if (progress) progress([NSString stringWithFormat:@"%@\nDownloading mods: %lu of %lu", file, (unsigned long)(finished + failed + skipped), (unsigned long)files.count]);
+            }
+        });
+
+        // Overrides were applied on the PC already; only add files that are missing so the player's settings survive
+        NSUInteger overrides = 0;
+        for (UZKFileInfo *info in [pack listFileInfo:nil]) {
+            for (NSString *prefix in @[@"overrides/", @"client-overrides/"]) {
+                if (![info.filename hasPrefix:prefix]) continue;
+                NSString *relative = [info.filename substringFromIndex:prefix.length];
+                NSString *dest = [gameDir stringByAppendingPathComponent:relative];
+                if (!isSafeRelativePath(relative) || [fm fileExistsAtPath:dest]) continue;
+                if ([self extract:info from:pack to:dest error:nil] && !info.isDirectory) overrides++;
+            }
+        }
+
+        // Keep the pack file for reference, but out of mods/
+        NSString *keepDir = [gameDir stringByAppendingPathComponent:@"pandora-modpacks"];
+        [fm createDirectoryAtPath:keepDir withIntermediateDirectories:YES attributes:nil error:nil];
+        [fm moveItemAtPath:packPath toPath:[keepDir stringByAppendingPathComponent:file] error:nil];
+
+        NSMutableString *note = [NSMutableString stringWithFormat:@"Unpacked %@: %lu files installed, %lu override files added.", file, (unsigned long)finished, (unsigned long)overrides];
+        if (failed) [note appendFormat:@" %lu downloads failed, so Mod Doctor will try to fill the gaps. Re-import on a better connection if mods are still missing.", (unsigned long)failed];
+        [notes addObject:note];
+    }
+    return notes;
+}
+
 + (BOOL)entries:(NSDictionary *)entries haveDirectory:(NSString *)dir {
     NSString *prefix = [dir stringByAppendingString:@"/"];
     for (NSString *name in entries) {
@@ -28,7 +142,7 @@ static id typed(id obj, Class cls) {
     return NO;
 }
 
-+ (NSString *)importArchiveAtPath:(NSString *)path {
++ (NSString *)importArchiveAtPath:(NSString *)path progress:(void (^)(NSString *))progress {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSError *error;
     UZKArchive *archive = [[UZKArchive alloc] initWithPath:path error:&error];
@@ -122,32 +236,22 @@ static id typed(id obj, Class cls) {
     }
     NSString *destDir = [gameDirs stringByAppendingPathComponent:folderName];
 
-    // Stream every file to disk; whole-file extraction would run out of memory on multi-GB worlds
     NSString *prefix = root.length ? [root stringByAppendingString:@"/"] : @"";
+    NSUInteger extractedCount = 0;
     for (NSString *entry in entries) {
         if (![entry hasPrefix:prefix]) continue;
         NSString *relative = [entry substringFromIndex:prefix.length];
-        // Zip entries are untrusted: never write outside the instance folder
-        if (relative.length == 0 || [relative hasPrefix:@"/"] || [[relative componentsSeparatedByString:@"/"] containsObject:@".."]) continue;
-        UZKFileInfo *info = entries[entry];
-        NSString *dest = [destDir stringByAppendingPathComponent:relative];
-        if (info.isDirectory || [entry hasSuffix:@"/"]) {
-            [fm createDirectoryAtPath:dest withIntermediateDirectories:YES attributes:nil error:nil];
-            continue;
-        }
-        [fm createDirectoryAtPath:dest.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-        [fm createFileAtPath:dest contents:nil attributes:nil];
-        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:dest];
-        BOOL extracted = handle && [archive extractBufferedDataFromFile:info.filename error:&error action:^(NSData *chunk, CGFloat percent) {
-            [handle writeData:chunk];
-        }];
-        [handle closeFile];
-        if (!extracted) {
+        if (!isSafeRelativePath(relative)) continue;
+        if (![self extract:entries[entry] from:archive to:[destDir stringByAppendingPathComponent:relative] error:&error]) {
             return [NSString stringWithFormat:@"Failed to extract %@: %@\nPartly imported files are in custom_gamedir/%@.", relative, error.localizedDescription, folderName];
+        }
+        if (progress && ++extractedCount % 200 == 0) {
+            progress([NSString stringWithFormat:@"Extracting files: %lu of %lu", (unsigned long)extractedCount, (unsigned long)entries.count]);
         }
     }
 
     NSMutableArray<NSString *> *notes = [NSMutableArray new];
+    [notes addObjectsFromArray:[self expandPandoraModpacksIn:destDir mcVersion:&mcVersion loader:&loader loaderVersion:&loaderVersion progress:progress]];
 
     // CurseForge packs only list mod ids; the website's download endpoint needs no API key
     NSUInteger curseForgeFailed = 0;
@@ -207,6 +311,7 @@ static id typed(id obj, Class cls) {
         PLProfiles.current.selectedProfileName = folderName; // also saves
     });
 
+    if (progress) progress(@"Mod Doctor: checking for missing mods");
     NSString *doctor = [ModDoctor fixMissingModsInGameDir:destDir minecraftVersion:mcVersion loader:loader];
     return [NSString stringWithFormat:@"Imported \"%@\" (%@ %@).\n\n%@%@%@",
         folderName, loader, mcVersion ?: @"unknown version",

@@ -1,12 +1,18 @@
+#include <CommonCrypto/CommonDigest.h>
+
 #import "ModDoctor.h"
 #import "UnzipKit.h"
 
 @implementation ModDoctor
 
+static id typed(id obj, Class cls) {
+    return [obj isKindOfClass:cls] ? obj : nil;
+}
+
 + (NSMutableURLRequest *)requestFor:(NSString *)url {
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     // Modrinth asks clients to identify themselves
-    [request setValue:@"kotxku/PandoraLauncher-iOS" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"kotxku/AMYDORA-V0.1" forHTTPHeaderField:@"User-Agent"];
     return request;
 }
 
@@ -44,6 +50,39 @@
     return saved;
 }
 
++ (BOOL)download:(NSString *)url toFile:(NSString *)path sha1:(NSString *)sha1 {
+    if (!url) return NO;
+    __block BOOL saved = NO;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [[NSURLSession.sharedSession downloadTaskWithRequest:[self requestFor:url]
+    completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+        if (!error && [(NSHTTPURLResponse *)response statusCode] == 200 && (!sha1 || [[self sha1OfFile:location.path] isEqualToString:sha1.lowercaseString])) {
+            NSFileManager *fm = NSFileManager.defaultManager;
+            [fm createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+            [fm removeItemAtPath:path error:nil];
+            saved = [fm moveItemAtPath:location.path toPath:path error:nil];
+        }
+        dispatch_semaphore_signal(done);
+    }] resume];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    return saved;
+}
+
++ (NSString *)sha1OfFile:(NSString *)path {
+    NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+    if (!data) return nil;
+    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
+    NSMutableString *hex = [NSMutableString new];
+    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", digest[i]];
+    return hex;
+}
+
++ (NSDictionary *)modInfoForJar:(NSString *)jarPath {
+    UZKArchive *archive = [[UZKArchive alloc] initWithPath:jarPath error:nil];
+    return typed([self parseJSON:[archive extractDataFromFile:@"fabric.mod.json" error:nil]], NSDictionary.class);
+}
+
 + (id)parseJSON:(NSData *)data {
     if (!data) return nil;
     NSJSONReadingOptions options = kNilOptions;
@@ -54,12 +93,9 @@
     return [NSJSONSerialization JSONObjectWithData:data options:options error:nil];
 }
 
-static id typed(id obj, Class cls) {
-    return [obj isKindOfClass:cls] ? obj : nil;
-}
 
-// Adds the mod ids a jar provides and depends on, including mods bundled inside it (jar-in-jar).
-+ (void)scanJar:(NSString *)jarPath provides:(NSMutableSet *)provides depends:(NSMutableSet *)depends {
+// Adds the mod ids a jar provides and, per mod id, what it depends on, including mods bundled inside it (jar-in-jar).
++ (void)scanJar:(NSString *)jarPath provides:(NSMutableSet *)provides depends:(NSMutableDictionary<NSString *, NSMutableSet *> *)depends {
     UZKArchive *archive = [[UZKArchive alloc] initWithPath:jarPath error:nil];
     NSDictionary *json = typed([self parseJSON:[archive extractDataFromFile:@"fabric.mod.json" error:nil]], NSDictionary.class);
     if (!json) return;
@@ -69,7 +105,9 @@ static id typed(id obj, Class cls) {
     for (id alias in typed(json[@"provides"], NSArray.class)) {
         if (typed(alias, NSString.class)) [provides addObject:alias];
     }
-    [depends addObjectsFromArray:[typed(json[@"depends"], NSDictionary.class) allKeys] ?: @[]];
+    NSString *owner = modId ?: jarPath;
+    if (!depends[owner]) depends[owner] = [NSMutableSet new];
+    [depends[owner] addObjectsFromArray:[typed(json[@"depends"], NSDictionary.class) allKeys] ?: @[]];
 
     for (NSDictionary *jar in typed(json[@"jars"], NSArray.class)) {
         NSString *inner = typed(typed(jar, NSDictionary.class)[@"file"], NSString.class);
@@ -135,6 +173,20 @@ static NSString *normalized(NSString *name) {
     return nil;
 }
 
+// Applies config/fabric_loader_dependencies.json the way Fabric Loader does; packs use it to drop dependencies they don't need
++ (void)applyDependencyOverridesIn:(NSString *)gameDir to:(NSMutableDictionary<NSString *, NSMutableSet *> *)depends {
+    NSString *path = [gameDir stringByAppendingPathComponent:@"config/fabric_loader_dependencies.json"];
+    NSDictionary *overrides = typed(typed([self parseJSON:[NSData dataWithContentsOfFile:path]], NSDictionary.class)[@"overrides"], NSDictionary.class);
+    for (NSString *modId in overrides) {
+        NSDictionary *rules = typed(overrides[modId], NSDictionary.class);
+        if (!depends[modId] || !rules) continue;
+        NSDictionary *replace = typed(rules[@"depends"], NSDictionary.class);
+        if (replace) [depends[modId] setSet:[NSSet setWithArray:replace.allKeys]];
+        [depends[modId] addObjectsFromArray:[typed(rules[@"+depends"], NSDictionary.class) allKeys] ?: @[]];
+        [depends[modId] minusSet:[NSSet setWithArray:[typed(rules[@"-depends"], NSDictionary.class) allKeys] ?: @[]]];
+    }
+}
+
 + (NSString *)fixMissingModsInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {
     // shortcut: Forge/NeoForge mods.toml is not parsed, only fabric.mod.json; add a TOML reader if Forge packs need it
     if (![loader isEqualToString:@"fabric"] && ![loader isEqualToString:@"quilt"]) {
@@ -153,12 +205,19 @@ static NSString *normalized(NSString *name) {
     // Newly downloaded mods can have dependencies of their own
     for (int pass = 0; pass < 5; pass++) {
         NSMutableSet *provides = [NSMutableSet new];
-        NSMutableSet *depends = [NSMutableSet new];
+        NSMutableDictionary<NSString *, NSMutableSet *> *dependsByMod = [NSMutableDictionary new];
         for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
+            NSString *path = [modsDir stringByAppendingPathComponent:file];
             if ([file.pathExtension.lowercaseString isEqualToString:@"jar"]) {
-                [self scanJar:[modsDir stringByAppendingPathComponent:file] provides:provides depends:depends];
+                [self scanJar:path provides:provides depends:dependsByMod];
+            } else if ([file.lowercaseString hasSuffix:@".jar.disabled"]) {
+                // Mods the player turned off count as present, so we don't reinstall them behind their back
+                [self scanJar:path provides:provides depends:[NSMutableDictionary new]];
             }
         }
+        [self applyDependencyOverridesIn:gameDir to:dependsByMod];
+        NSMutableSet *depends = [NSMutableSet new];
+        for (NSSet *modDepends in dependsByMod.allValues) [depends unionSet:modDepends];
         [depends minusSet:provides];
         [depends minusSet:builtIn];
         [depends minusSet:tried];

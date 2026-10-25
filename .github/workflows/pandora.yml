@@ -1,4 +1,4 @@
-name: Build Pandora IPA
+name: Build AMYDORA IPA
 
 on:
   push:
@@ -27,9 +27,12 @@ jobs:
           export PATH="$(brew --prefix)/bin:$PATH"
           gmake -j$(sysctl -n hw.ncpu) package BOOTJDK="$JAVA_HOME/bin" RELEASE=1
 
+      - name: Name IPA
+        run: mv artifacts/org.angelauramc.amethyst-*-ios.ipa artifacts/AMYDORA_V0.1.ipa
+
       # Full IPA bundles Java 8, 17, 21 and 25 (Minecraft 1.8 through 26.x)
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PandoraLauncher-iOS-ipa
-          path: artifacts/*.ipa
+          name: AMYDORA_V0.1
+          path: artifacts/AMYDORA_V0.1.ipa
