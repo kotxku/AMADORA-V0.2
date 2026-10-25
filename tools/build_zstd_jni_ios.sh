@@ -26,6 +26,6 @@ xcrun -sdk iphoneos clang -target arm64-apple-ios14.0 -dynamiclib -O3 -flto -fPI
 
 # Fail the build rather than ship a macOS binary or one whose exports differ from DH's own darwin/aarch64 library
 otool -l "$OUT" | grep -A4 LC_BUILD_VERSION | grep -q "platform 2" || { echo "not an iOS binary"; exit 1; }
-diff <(nm -gU "$OUT" | awk '{print $3}' | sort -u) "$HERE/dh_zstd_jni_symbols.txt" || { echo "exports differ from DH's zstd-jni"; exit 1; }
+diff <(nm -gU "$OUT" | awk '{print $3}' | LC_ALL=C sort -u) <(LC_ALL=C sort -u "$HERE/dh_zstd_jni_symbols.txt") || { echo "exports differ from DH's zstd-jni"; exit 1; }
 strings "$OUT" | grep 'dhcomgithubluben/zstd/ZstdFrameProgression' >/dev/null || { echo "FindClass string not relocated"; exit 1; }
 echo "Built $OUT"
