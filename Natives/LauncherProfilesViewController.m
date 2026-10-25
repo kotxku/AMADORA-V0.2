@@ -1,3 +1,4 @@
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -14,7 +15,9 @@
 #import "UIKit+hook.h"
 #import "installer/FabricInstallViewController.h"
 #import "installer/ForgeInstallViewController.h"
+#import "installer/ModDoctor.h"
 #import "installer/ModpackInstallViewController.h"
+#import "installer/PandoraImport.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 
@@ -23,7 +26,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     kProfiles
 };
 
-@interface LauncherProfilesViewController () //<UIContextMenuInteractionDelegate>
+@interface LauncherProfilesViewController () <UIDocumentPickerDelegate>
 
 @property(nonatomic) UIBarButtonItem *createButtonItem;
 @end
@@ -118,6 +121,60 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     [self presentNavigatedViewController:vc];
 }
 
+- (void)actionImportCustomModpack {
+    // Any file: .mrpack and .forge have no system type, so the extension is checked after picking
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeItem] asCopy:YES];
+    picker.delegate = self;
+    picker.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    NSString *path = urls.firstObject.path;
+    NSString *extension = path.pathExtension.lowercaseString;
+    if ([extension isEqualToString:@"mrpack"]) {
+        // Modrinth packs go through the existing modpack downloader and its progress bar
+        [NSNotificationCenter.defaultCenter postNotificationName:@"InstallModpack" object:nil userInfo:@{@"localPackage": path}];
+        return;
+    }
+    if (![@[@"zip", @"forge"] containsObject:extension]) {
+        showDialog(@"Unsupported file", @"Pick a .zip, .mrpack or .forge modpack or instance.");
+        return;
+    }
+    [self runInBackground:@"Importing modpack" work:^NSString *{
+        NSString *report = [PandoraImport importArchiveAtPath:path];
+        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        return report;
+    }];
+}
+
+- (void)actionFixMissingModsForProfile:(NSDictionary *)profile {
+    NSDictionary *info = [PandoraImport loaderInfoForVersionId:profile[@"lastVersionId"]];
+    NSString *gameDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:profile[@"gameDir"] ?: @"."].stringByStandardizingPath;
+    [self runInBackground:@"Mod Doctor" work:^NSString *{
+        return [ModDoctor fixMissingModsInGameDir:gameDir minecraftVersion:info[@"mc"] loader:info[@"loader"]];
+    }];
+}
+
+// Shows a blocking alert while work runs off the main thread, then shows its report.
+- (void)runInBackground:(NSString *)title work:(NSString *(^)(void))work {
+    UIAlertController *busy = [UIAlertController alertControllerWithTitle:title
+        message:@"Big packs can take a few minutes. Keep the app open." preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:busy animated:YES completion:^{
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSString *report = work();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [busy dismissViewControllerAnimated:YES completion:^{
+                    [PLProfiles updateCurrent];
+                    [self.tableView reloadData];
+                    [self.navigationController performSelector:@selector(reloadProfileList)];
+                    showDialog(title, report);
+                }];
+            });
+        });
+    }];
+}
+
 - (void)actionEditProfile:(NSDictionary *)profile {
     LauncherProfileEditorViewController *vc = [LauncherProfileEditorViewController new];
     vc.profile = profile.mutableCopy;
@@ -146,7 +203,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case 0: return 2;
+        case 0: return 3;
         case 1: return [PLProfiles.current.profiles count];
     }
     return 0;
@@ -158,6 +215,10 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
         cell.imageView.image = [UIImage systemImageNamed:@"folder"];
         cell.textLabel.text = localize(@"preference.title.game_directory", nil);
         cell.detailTextLabel.text = getenv("DEMO_LOCK") ? @".demo" : getPrefObject(@"general.game_directory");
+    } else if (row == 2) {
+        cell.imageView.image = [UIImage systemImageNamed:@"plus.rectangle.on.folder"];
+        cell.textLabel.text = @"Add Custom Modpack";
+        cell.detailTextLabel.text = @".zip, .mrpack or .forge. Missing mods are downloaded for you.";
     } else {
         NSString *imageName;
         if (@available(iOS 15.0, *)) {
@@ -221,6 +282,8 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     if (indexPath.section == kInstances) {
         if (indexPath.row == 0) {
             [self.navigationController pushViewController:[LauncherPrefGameDirViewController new] animated:YES];
+        } else if (indexPath.row == 2) {
+            [self actionImportCustomModpack];
         }
         return;
     }
@@ -229,6 +292,18 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 }
 
 #pragma mark Context Menu configuration
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.section != kProfiles) return nil;
+    NSDictionary *profile = PLProfiles.current.profiles.allValues[indexPath.row];
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
+        return [UIMenu menuWithTitle:@"" children:@[
+            [UIAction actionWithTitle:@"Find & Download Missing Mods" image:[UIImage systemImageNamed:@"stethoscope"] identifier:nil handler:^(UIAction *action) {
+                [self actionFixMissingModsForProfile:profile];
+            }]
+        ]];
+    }];
+}
 
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
 {

@@ -127,6 +127,8 @@ add_executable(AngelAuraAmethyst
   installer/ForgeInstallViewController.m
   installer/ModpackInstallViewController.m
   installer/FabricUtils.m
+  installer/ModDoctor.m
+  installer/PandoraImport.m
   installer/modpack/ModpackUtils.m
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m

@@ -1,7 +1,7 @@
 #include <CommonCrypto/CommonDigest.h>
 
 #import "authenticator/BaseAuthenticator.h"
-#import "installer/modpack/ModpackAPI.h"
+#import "installer/modpack/ModrinthAPI.h"
 #import "AFNetworking.h"
 #import "LauncherNavigationController.h"
 #import "LauncherPreferences.h"
@@ -280,6 +280,19 @@
         [api downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
     }];
     [task resume];
+}
+
+// Installs a .mrpack the user picked from Files
+- (void)downloadModpackFromPackage:(NSString *)packagePath {
+    [self prepareForDownload];
+    NSString *name = [packagePath.lastPathComponent.stringByDeletingPathExtension stringByReplacingOccurrencesOfString:@" " withString:@"_"];
+    NSString *path = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), name];
+    // The Modrinth installer throws on a missing index, so check first
+    if (![[[UZKArchive alloc] initWithPath:packagePath error:nil] extractDataFromFile:@"modrinth.index.json" error:nil]) {
+        [self finishDownloadWithErrorString:[NSString stringWithFormat:@"%@ is not a valid .mrpack (no modrinth.index.json).", packagePath.lastPathComponent]];
+        return;
+    }
+    [[ModrinthAPI new] downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
 }
 
 #pragma mark - Utilities

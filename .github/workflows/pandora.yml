@@ -1,0 +1,35 @@
+name: Build Pandora IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Upstream builds on a private self-hosted Mac; this uses GitHub's hosted macOS runner instead
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The Makefile requires a JDK 8 javac to build the launcher's Java side
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '8'
+
+      - name: Install build tools
+        run: brew install ldid make
+
+      - name: Build IPA
+        run: |
+          export PATH="$(brew --prefix)/bin:$PATH"
+          gmake -j$(sysctl -n hw.ncpu) package BOOTJDK="$JAVA_HOME/bin" RELEASE=1
+
+      # Full IPA bundles Java 8, 17, 21 and 25 (Minecraft 1.8 through 26.x)
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PandoraLauncher-iOS-ipa
+          path: artifacts/*.ipa
