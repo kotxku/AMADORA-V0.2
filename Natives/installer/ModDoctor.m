@@ -190,9 +190,7 @@ static NSString *normalized(NSString *name) {
 + (NSString *)fixMissingModsInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {
     NSString *switchedOff = [self disableUnsupportedModsIn:[gameDir stringByAppendingPathComponent:@"mods"]];
     NSString *report = [self checkDependenciesInGameDir:gameDir minecraftVersion:mcVersion loader:loader];
-    return switchedOff ? [NSString stringWithFormat:@"%@
-
-%@", switchedOff, report] : report;
+    return switchedOff ? [NSString stringWithFormat:@"%@\n\n%@", switchedOff, report] : report;
 }
 
 // C2ME crashes Minecraft on iOS. Rename instead of delete so the player can turn it back on.
@@ -205,9 +203,7 @@ static NSString *normalized(NSString *name) {
             [disabled addObject:file];
         }
     }
-    return disabled.count ? [NSString stringWithFormat:@"Switched off mods that don't work on iOS:
-%@", [disabled componentsJoinedByString:@"
-"]] : nil;
+    return disabled.count ? [NSString stringWithFormat:@"Switched off mods that don't work on iOS:\n%@", [disabled componentsJoinedByString:@"\n"]] : nil;
 }
 
 + (NSString *)checkDependenciesInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {
