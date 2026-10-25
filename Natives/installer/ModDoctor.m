@@ -242,7 +242,7 @@ static int minJavaForPredicate(NSString *predicate) {
     static NSRegularExpression *tomlJava;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        tomlJava = [NSRegularExpression regularExpressionWithPattern:@"modId\s*=\s*\"java\"[^\]]*?versionRange\s*=\s*\"[\[(]\s*(?:1\.)?(\d+)" options:0 error:nil];
+        tomlJava = [NSRegularExpression regularExpressionWithPattern:@"modId\\s*=\\s*\"java\"[^\\]]*?versionRange\\s*=\\s*\"[\\[(]\\s*(?:1\\.)?(\\d+)" options:0 error:nil];
     });
     for (NSString *toml in @[@"META-INF/mods.toml", @"META-INF/neoforge.mods.toml"]) {
         NSData *data = [archive extractDataFromFile:toml error:nil];
@@ -274,7 +274,7 @@ static int minJavaForPredicate(NSString *predicate) {
     for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
         if (![file.pathExtension.lowercaseString isEqualToString:@"jar"]) continue;
         NSString *path = [modsDir stringByAppendingPathComponent:file];
-        NSString *modId = typed([self modInfoForJar:path][@"id"], NSString.class).lowercaseString;
+        NSString *modId = [typed([self modInfoForJar:path][@"id"], NSString.class) lowercaseString];
         NSString *reason;
         for (NSString *key in unsupportedMods()) {
             if ([file.lowercaseString hasPrefix:key] || [modId hasPrefix:key]) reason = unsupportedMods()[key];
