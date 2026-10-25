@@ -20,7 +20,13 @@ jobs:
           java-version: '8'
 
       - name: Install build tools
-        run: brew install ldid make
+        run: brew install ldid make ant autoconf automake libtool
+
+      # Signed in-bundle libjnidispatch for JNA 5.17.0; the payload step copies Natives/build/*.dylib into Frameworks
+      - name: Build libjnidispatch for iOS
+        run: |
+          git clone --depth 1 -b 5.17.0 https://github.com/java-native-access/jna "$RUNNER_TEMP/jna"
+          bash tools/build_jnidispatch_ios.sh "$RUNNER_TEMP/jna" Natives/build/libjnidispatch.dylib
 
       - name: Build IPA
         run: |

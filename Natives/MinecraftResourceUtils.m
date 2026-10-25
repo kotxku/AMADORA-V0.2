@@ -81,18 +81,18 @@
         NSString *versionStr = [library[@"name"] componentsSeparatedByString:@":"][2];
         NSArray<NSString *> *version = [versionStr componentsSeparatedByString:@"."];
         if ([library[@"name"] hasPrefix:@"net.java.dev.jna:jna:"]) {
-            // Special handling for LabyMod 1.8.9 and Forge 1.12.2(?)
-            // we have libjnidispatch 5.13.0 in Frameworks directory
-            uint32_t bundledVer = 5 << 16 | 13 << 8 | 0;
-            uint32_t requiredVer = (char)version[0].intValue << 16 | (char)version[1].intValue << 8 | (char)version[2].intValue;
-            if (requiredVer > bundledVer) {
-                NSLog(@"[MCDL] Warning: JNA version required by %@ is %@ > 5.13.0, skipping JNA replacement.", json[@"id"], versionStr);
+            // We ship a signed libjnidispatch for JNA 5.17.0 in Frameworks. JNA 5.x stays backwards compatible,
+            // so any older 5.x/4.x request is upgraded to the jar matching that native library.
+            NSString *bundledVer = @"5.17.0";
+            if ([versionStr compare:bundledVer options:NSNumericSearch] == NSOrderedDescending) {
+                NSLog(@"[MCDL] Warning: JNA %@ required by %@ is newer than bundled %@; keeping it, its native library must match", versionStr, json[@"id"], bundledVer);
                 continue;
             }
-            library[@"name"] = @"net.java.dev.jna:jna:5.13.0";
-            library[@"downloads"][@"artifact"][@"path"] = @"net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
-            library[@"downloads"][@"artifact"][@"url"] = @"https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar";
-            library[@"downloads"][@"artifact"][@"sha1"] = @"1200e7ebeedbe0d10062093f32925a912020e747";
+            NSLog(@"[MCDL] Replacing JNA %@ with bundled %@", versionStr, bundledVer);
+            library[@"name"] = @"net.java.dev.jna:jna:5.17.0";
+            library[@"downloads"][@"artifact"][@"path"] = @"net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar";
+            library[@"downloads"][@"artifact"][@"url"] = @"https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar";
+            library[@"downloads"][@"artifact"][@"sha1"] = @"33d12735bef894440780fce64f9758d420c7bae2";
         } else if ([library[@"name"] hasPrefix:@"org.ow2.asm:asm-all:"]) {
             // Early versions of the ASM library get repalced with 5.0.4 because Pojav's LWJGL is compiled for
             // Java 8, which is not supported by old ASM versions. Mod loaders like Forge, which depend on this

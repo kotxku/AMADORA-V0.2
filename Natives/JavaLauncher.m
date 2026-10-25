@@ -269,6 +269,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     margv[++margc] = "-Dorg.lwjgl.system.allocator=system";
     //margv[++margc] = "-Dorg.lwjgl.util.NoChecks=true";
     margv[++margc] = "-Dlog4j2.formatMsgNoLookups=true";
+    // JNA must load the signed libjnidispatch from Frameworks; an extracted copy in Caches fails code signature checks
+    margv[++margc] = [NSString stringWithFormat:@"-Djna.boot.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
+    margv[++margc] = "-Djna.nounpack=true";
+    margv[++margc] = "-Djna.noclasspath=true";
+    margv[++margc] = "-Djna.nosys=true";
 
     // Preset OpenGL libname
     const char *glLibName = getenv("RENDERER");

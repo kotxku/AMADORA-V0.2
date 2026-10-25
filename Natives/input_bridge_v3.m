@@ -191,7 +191,11 @@ void registerOpenHandler(JNIEnv *env) {
         {"nQuerySystemClipboard", "()V", (void *)&CTCClipboard_nQuerySystemClipboard},
         {"nPutClipboardData", "(Ljava/lang/String;Ljava/lang/String;)V", (void *)&CTCClipboard_nPutClipboardData}
     };
-    (*env)->RegisterNatives(env, cls, clipboardMethods, 2);
+    if (cls) {
+        (*env)->RegisterNatives(env, cls, clipboardMethods, 2);
+    } else {
+        (*env)->ExceptionClear(env);
+    }
 
     // Register CTCDesktopPeer natives
     cls = (*env)->FindClass(env, "net/java/openjdk/cacio/ctc/CTCDesktopPeer");
@@ -208,13 +212,23 @@ void registerOpenHandler(JNIEnv *env) {
     (*env)->RegisterNatives(env, cls, peerOpenMethods, 2);
 }
 
-// JNI_OnLoad
-void JNI_OnLoadGLFW() {
-    vmGlfwClass = (*runtimeJNIEnvPtr)->NewGlobalRef(runtimeJNIEnvPtr, (*runtimeJNIEnvPtr)->FindClass(runtimeJNIEnvPtr, "org/lwjgl/glfw/GLFW"));
-    method_internalWindowSizeChanged = (*runtimeJNIEnvPtr)->GetStaticMethodID(runtimeJNIEnvPtr, vmGlfwClass, "internalWindowSizeChanged", "(JII)V");
-    jfieldID field_keyDownBuffer = (*runtimeJNIEnvPtr)->GetStaticFieldID(runtimeJNIEnvPtr, vmGlfwClass, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
-    jobject keyDownBufferJ = (*runtimeJNIEnvPtr)->GetStaticObjectField(runtimeJNIEnvPtr, vmGlfwClass, field_keyDownBuffer);
-    keyDownBuffer = (*runtimeJNIEnvPtr)->GetDirectBufferAddress(runtimeJNIEnvPtr, keyDownBufferJ);
+// Resolved lazily from the GLFW stub's own natives. LWJGL 3.4's Library.<clinit> loads this binary,
+// so FindClass(GLFW) inside JNI_OnLoad would initialize GLFW while Library is half-initialized and fail.
+void JNI_OnLoadGLFW(JNIEnv *env, jclass glfwClass) {
+    if (vmGlfwClass || !glfwClass || getenv("AME_SKIP_JNI_GLFW")) return;
+    jmethodID sizeChanged = (*env)->GetStaticMethodID(env, glfwClass, "internalWindowSizeChanged", "(JII)V");
+    jfieldID field_keyDownBuffer = sizeChanged ? (*env)->GetStaticFieldID(env, glfwClass, "keyDownBuffer", "Ljava/nio/ByteBuffer;") : NULL;
+    jobject keyDownBufferJ = field_keyDownBuffer ? (*env)->GetStaticObjectField(env, glfwClass, field_keyDownBuffer) : NULL;
+    if ((*env)->ExceptionCheck(env) || !keyDownBufferJ) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+        NSLog(@"[GLFW bridge] GLFW stub is missing internalWindowSizeChanged/keyDownBuffer");
+        return;
+    }
+    method_internalWindowSizeChanged = sizeChanged;
+    keyDownBuffer = (*env)->GetDirectBufferAddress(env, keyDownBufferJ);
+    vmGlfwClass = (*env)->NewGlobalRef(env, glfwClass);
+    NSLog(@"[GLFW bridge] Bound to org.lwjgl.glfw.GLFW");
 }
 
 jint JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -225,7 +239,6 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     registerOpenHandler(env);
     if (!getenv("AME_SKIP_JNI_GLFW")) {
         runtimeJNIEnvPtr = env;
-        JNI_OnLoadGLFW();
     }
 
     return JNI_VERSION_1_4;
@@ -238,6 +251,7 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
 
 #define ADD_CALLBACK_WWIN(NAME) \
 JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSet##NAME##Callback(JNIEnv * env, jclass cls, jlong window, jlong callbackptr) { \
+    JNI_OnLoadGLFW(env, cls); \
     void** oldCallback = (void**) &GLFW_invoke_##NAME; \
     GLFW_invoke_##NAME = (GLFW_invoke_##NAME##_func*) (uintptr_t) callbackptr; \
     return (jlong) (uintptr_t) *oldCallback; \
@@ -259,7 +273,7 @@ ADD_CALLBACK_WWIN(WindowSize)
 void handleFramebufferSizeJava(void* window, int w, int h) {
     if(GLFW_invoke_CursorEnter)GLFW_invoke_CursorEnter(window, 1);
     if(GLFW_invoke_WindowPos)GLFW_invoke_WindowPos(window, 0, 0);
-    (*runtimeJNIEnvPtr)->CallStaticVoidMethod(runtimeJNIEnvPtr, vmGlfwClass, method_internalWindowSizeChanged, (long)window, w, h);
+    if (vmGlfwClass) (*runtimeJNIEnvPtr)->CallStaticVoidMethod(runtimeJNIEnvPtr, vmGlfwClass, method_internalWindowSizeChanged, (long)window, w, h);
 }
 
 void pojavPumpEvents(void* window) {
@@ -530,7 +544,7 @@ char getKeyModifiers(int key, int action) {
 
 void CallbackBridge_nativeSendKey(int key, int scancode, int action, int mods) {
     if (GLFW_invoke_Key && isInputReady) {
-        keyDownBuffer[MAX(0, key-31)]=(jbyte)action;
+        if (keyDownBuffer) keyDownBuffer[MAX(0, key-31)]=(jbyte)action;
         if (mods == 0) {
             mods = getKeyModifiers(key, action);
         }
@@ -602,6 +616,7 @@ void CallbackBridge_nativeSendScroll(CGFloat xoffset, CGFloat yoffset) {
 }
 
 JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetShowingWindow(JNIEnv* env, jclass clazz, jlong window) {
+    JNI_OnLoadGLFW(env, clazz);
     showingWindow = (long) window;
 }
 
