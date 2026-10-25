@@ -27,7 +27,7 @@ echo "JNA native version $VERSION, checksum $CHECKSUM"
 
 make -C "$JNA/native" OS=darwin ARCH=aarch64 JAVA_HOME="$JAVA_HOME" JAVAH="$JNA/build/headers" \
     CC="$WRAP" SDKROOT="$SDK" BUILD="$JNA/build/ios" HOST_CONFIG=--host=aarch64-apple-ios \
-    JNA_JNI_VERSION="$VERSION" CHECKSUM="$CHECKSUM" "$JNA/build/ios/libjnidispatch.jnilib"
+    JNA_JNI_VERSION="$VERSION" CHECKSUM="$CHECKSUM" MAKEINFO=true "$JNA/build/ios/libjnidispatch.jnilib"
 
 mkdir -p "$(dirname "$OUT")"
 cp "$JNA/build/ios/libjnidispatch.jnilib" "$OUT"
