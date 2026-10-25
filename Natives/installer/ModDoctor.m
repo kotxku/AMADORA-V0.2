@@ -1,5 +1,6 @@
 #include <CommonCrypto/CommonDigest.h>
 
+#import "LauncherPreferences.h"
 #import "ModDoctor.h"
 #import "UnzipKit.h"
 
@@ -193,17 +194,148 @@ static NSString *normalized(NSString *name) {
     return switchedOff ? [NSString stringWithFormat:@"%@\n\n%@", switchedOff, report] : report;
 }
 
-// C2ME crashes Minecraft on iOS. Rename instead of delete so the player can turn it back on.
+// Mods whose native code has no iOS build, by mod id or file name prefix. Renamed to .jar.disabled instead of deleted,
+// so the player can turn them back on.
+static NSDictionary<NSString *, NSString *> *unsupportedMods(void) {
+    return @{
+        @"c2me": @"C2ME: its native code has no iOS build and crashes Minecraft",
+        @"physicsmod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version",
+        @"physics-mod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version"
+    };
+}
+
 + (NSString *)disableUnsupportedModsIn:(NSString *)modsDir {
-    NSMutableArray *disabled = [NSMutableArray new];
-    for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
-        if (![file.lowercaseString hasPrefix:@"c2me"] || ![file.pathExtension.lowercaseString isEqualToString:@"jar"]) continue;
-        NSString *path = [modsDir stringByAppendingPathComponent:file];
-        if ([NSFileManager.defaultManager moveItemAtPath:path toPath:[path stringByAppendingString:@".disabled"] error:nil]) {
-            [disabled addObject:file];
-        }
+    return [self prepareModsIn:modsDir requiredJava:NULL requiredBy:NULL];
+}
+
+// Lowest Java major a Fabric version predicate allows: ">=21", ">17", "^21", "21", "*". Space-separated parts all apply.
+static int minJavaForPredicate(NSString *predicate) {
+    int result = 0;
+    for (NSString *part in [predicate componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet]) {
+        if ([part hasPrefix:@"<"]) continue; // an upper bound says nothing about the minimum
+        NSScanner *scanner = [NSScanner scannerWithString:part];
+        BOOL greater = [scanner scanString:@">" intoString:nil];
+        BOOL orEqual = [scanner scanString:@"=" intoString:nil];
+        [scanner scanCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"^~="] intoString:nil];
+        int version;
+        if (![scanner scanInt:&version]) continue;
+        if (version == 1 && [scanner scanString:@"." intoString:nil]) [scanner scanInt:&version]; // "1.8"
+        result = MAX(result, greater && !orEqual ? version + 1 : version);
     }
-    return disabled.count ? [NSString stringWithFormat:@"Switched off mods that don't work on iOS:\n%@", [disabled componentsJoinedByString:@"\n"]] : nil;
+    return result;
+}
+
+// The Java major this jar (or a jar inside it) declares: Fabric/Quilt depends.java, or a "java" dependency in mods.toml
++ (void)scanJavaOfJar:(NSString *)jarPath fileName:(NSString *)fileName best:(int *)best mod:(NSString **)mod {
+    UZKArchive *archive = [[UZKArchive alloc] initWithPath:jarPath error:nil];
+    NSDictionary *json = typed([self parseJSON:[archive extractDataFromFile:@"fabric.mod.json" error:nil]], NSDictionary.class);
+    int required = 0;
+    id java = typed(json[@"depends"], NSDictionary.class)[@"java"];
+    if (typed(java, NSString.class)) {
+        required = minJavaForPredicate(java);
+    } else if (typed(java, NSArray.class)) {
+        required = INT_MAX; // alternatives: the lowest one is enough
+        for (id predicate in java) if (typed(predicate, NSString.class)) required = MIN(required, minJavaForPredicate(predicate));
+        if (required == INT_MAX) required = 0;
+    }
+    // shortcut: assumes modId comes before versionRange in each [[dependencies]] block, as Forge's template writes it
+    static NSRegularExpression *tomlJava;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        tomlJava = [NSRegularExpression regularExpressionWithPattern:@"modId\s*=\s*\"java\"[^\]]*?versionRange\s*=\s*\"[\[(]\s*(?:1\.)?(\d+)" options:0 error:nil];
+    });
+    for (NSString *toml in @[@"META-INF/mods.toml", @"META-INF/neoforge.mods.toml"]) {
+        NSData *data = [archive extractDataFromFile:toml error:nil];
+        NSString *text = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+        NSTextCheckingResult *match = text ? [tomlJava firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] : nil;
+        if (match) required = MAX(required, [text substringWithRange:[match rangeAtIndex:1]].intValue);
+    }
+    if (required > *best) {
+        *best = required;
+        *mod = [NSString stringWithFormat:@"%@ (%@)", typed(json[@"id"], NSString.class) ?: fileName, fileName];
+    }
+
+    for (NSDictionary *jar in typed(json[@"jars"], NSArray.class)) {
+        NSString *inner = typed(typed(jar, NSDictionary.class)[@"file"], NSString.class);
+        NSData *innerData = inner ? [archive extractDataFromFile:inner error:nil] : nil;
+        if (!innerData) continue;
+        // UnzipKit can only open archives from disk
+        NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        [innerData writeToFile:tmp atomically:NO];
+        [self scanJavaOfJar:tmp fileName:[NSString stringWithFormat:@"%@ in %@", inner.lastPathComponent, fileName] best:best mod:mod];
+        [NSFileManager.defaultManager removeItemAtPath:tmp error:nil];
+    }
+}
+
++ (NSString *)prepareModsIn:(NSString *)modsDir requiredJava:(int *)requiredJava requiredBy:(NSString **)requiredBy {
+    NSMutableArray *disabled = [NSMutableArray new];
+    int best = 0;
+    NSString *bestMod;
+    for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
+        if (![file.pathExtension.lowercaseString isEqualToString:@"jar"]) continue;
+        NSString *path = [modsDir stringByAppendingPathComponent:file];
+        NSString *modId = typed([self modInfoForJar:path][@"id"], NSString.class).lowercaseString;
+        NSString *reason;
+        for (NSString *key in unsupportedMods()) {
+            if ([file.lowercaseString hasPrefix:key] || [modId hasPrefix:key]) reason = unsupportedMods()[key];
+        }
+        if (reason) {
+            if ([NSFileManager.defaultManager moveItemAtPath:path toPath:[path stringByAppendingString:@".disabled"] error:nil]) {
+                NSLog(@"[ModDoctor] Switched off %@: %@", file, reason);
+                [disabled addObject:[NSString stringWithFormat:@"%@ (%@)", reason, file]];
+            }
+            continue;
+        }
+        if (requiredJava) [self scanJavaOfJar:path fileName:file best:&best mod:&bestMod];
+    }
+    if (requiredJava) *requiredJava = best;
+    if (requiredBy) *requiredBy = bestMod;
+    return disabled.count ? [NSString stringWithFormat:@"Switched off mods that can't work on iOS:\n%@\n\nThey were renamed to .jar.disabled in mods/.",
+        [disabled componentsJoinedByString:@"\n"]] : nil;
+}
+
+// javaVersion.majorVersion of a version JSON, following inheritsFrom (a loader profile usually doesn't set its own)
++ (int)javaMajorInVersionJSON:(NSDictionary *)json versionId:(NSString *)versionId {
+    if ([versionId hasPrefix:@"latest-"]) {
+        versionId = typed(getPrefObject(@"internal.latest_version"), NSDictionary.class)[[versionId substringFromIndex:7]];
+    }
+    int major = 0;
+    for (int depth = 0; depth < 5 && (json || versionId); depth++) {
+        if (!json) {
+            NSString *path = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), versionId];
+            json = typed([self parseJSON:[NSData dataWithContentsOfFile:path]], NSDictionary.class);
+            if (!json) break;
+        }
+        NSDictionary *java = typed(json[@"javaVersion"], NSDictionary.class);
+        major = MAX(major, [java[@"majorVersion"] intValue] ?: [java[@"version"] intValue]);
+        versionId = typed(json[@"inheritsFrom"], NSString.class);
+        json = nil;
+    }
+    return major;
+}
+
++ (int)selectJavaForProfile:(NSDictionary *)profile versionJSON:(NSDictionary *)json required:(int *)required javaHome:(NSString **)javaHome warning:(NSString **)warning {
+    NSString *gameDir = [@(getenv("GAME_DIR")) stringByAppendingPathComponent:typed(profile[@"gameDir"], NSString.class) ?: @"."];
+    NSString *versionId = typed(profile[@"lastVersionId"], NSString.class);
+    int mcJava = [self javaMajorInVersionJSON:json versionId:versionId];
+    int modJava = 0;
+    NSString *mod;
+    NSString *disabled = [self prepareModsIn:[gameDir stringByAppendingPathComponent:@"mods"] requiredJava:&modJava requiredBy:&mod];
+    int need = MAX(mcJava, modJava);
+    NSString *home;
+    int selected = selectJavaRuntime(need, [profile[@"javaVersion"] intValue], &home);
+
+    NSArray *installed = [installedJavaRuntimes().allKeys sortedArrayUsingSelector:@selector(compare:)];
+    NSLog(@"[JavaSelect] %@: Minecraft %@ needs Java %d, mods need Java %d%@; installed: %@ -> %@",
+        profile[@"name"] ?: versionId, versionId, mcJava, modJava,
+        mod ? [NSString stringWithFormat:@" (highest: %@)", mod] : @"",
+        [installed componentsJoinedByString:@", "],
+        selected ? [NSString stringWithFormat:@"selected Java %d (%@)", selected, home]
+                 : [NSString stringWithFormat:@"no installed runtime is Java %d or newer", need]);
+    if (required) *required = need;
+    if (javaHome) *javaHome = home;
+    if (warning) *warning = disabled;
+    return selected;
 }
 
 + (NSString *)checkDependenciesInGameDir:(NSString *)gameDir minecraftVersion:(NSString *)mcVersion loader:(NSString *)loader {

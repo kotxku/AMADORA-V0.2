@@ -163,17 +163,17 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     BOOL launchJar = NO;
     NSString *gameDir;
     NSString *defaultJRETag;
+    NSString *javaHome;
     NSCAssert(launchTarget, @"Unexpected nil launchTarget");
     if ([launchTarget isKindOfClass:NSDictionary.class]) {
-        // Get preferred Java version from current profile
+        // Before launching, the launcher stores the Java this profile and its mods need in javaVersion
+        // (ModDoctor selectJavaForProfile). Treat it as a minimum too, so a missing runtime never means an older Java.
         int preferredJavaVersion = [PLProfiles resolveKeyForCurrentProfile:@"javaVersion"].intValue;
-        if (preferredJavaVersion > 0) {
-            if (minVersion > preferredJavaVersion) {
-                NSLog(@"[JavaLauncher] Profile's preferred Java version (%d) does not meet the minimum version (%d), dropping request", preferredJavaVersion, minVersion);
-            } else {
-                NSDebugLog(@"[PLProfiles] Applying javaVersion");
-                minVersion = preferredJavaVersion;
-            }
+        if (minVersion > 0 || preferredJavaVersion > 0) {
+            minVersion = MAX(minVersion, preferredJavaVersion);
+            int selected = selectJavaRuntime(minVersion, preferredJavaVersion, &javaHome);
+            NSLog(@"[JavaSelect] Launching with %@", selected ? [NSString stringWithFormat:@"Java %d (%@)", selected, javaHome]
+                : [NSString stringWithFormat:@"nothing: no installed runtime is Java %d or newer", minVersion]);
         }
         if (minVersion <= 8) {
             defaultJRETag = @"1_16_5_older";
@@ -195,8 +195,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         gameDir = @(getenv("GAME_DIR"));
         launchJar = YES;
     }
-    NSLog(@"[JavaLauncher] Looking for Java %d or later", minVersion);
-    NSString *javaHome = getSelectedJavaHome(defaultJRETag, minVersion);
+    if (!javaHome && (launchJar || minVersion == 0)) {
+        // A jar, or a version JSON that doesn't say which Java it needs: use the Manage Runtimes defaults
+        NSLog(@"[JavaLauncher] Looking for Java %d or later", minVersion);
+        javaHome = getSelectedJavaHome(defaultJRETag, minVersion);
+    }
 
     if (javaHome == nil) {
         UIKit_returnToSplitView();

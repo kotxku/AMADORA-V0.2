@@ -132,6 +132,58 @@ NSString* getSelectedJavaHome(NSString* defaultJRETag, int minVersion) {
     }
 }
 
+// Same condition JavaLauncher uses to turn on the dyld library validation bypass
+BOOL canLoadUnsignedLibraries(void) {
+    return !DeviceHasJITFlags(JIT_FLAG_FORCE_MIRRORED | JIT_FLAG_HAS_TXM) || getPrefBool(@"debug.debug_always_attached_jit");
+}
+
+// JAVA_VERSION from the runtime's release file: "1.8.0_452" -> 8, "21.0.7" -> 21; 0 if unreadable
+static int javaMajorOfRuntime(NSString *path) {
+    NSString *release = [NSString stringWithContentsOfFile:[path stringByAppendingPathComponent:@"release"] encoding:NSUTF8StringEncoding error:nil];
+    NSArray *parts = [release componentsSeparatedByString:@"JAVA_VERSION=\""];
+    if (parts.count < 2) return 0;
+    NSArray *numbers = [[parts[1] componentsSeparatedByString:@"\""][0] componentsSeparatedByString:@"."];
+    int major = [numbers[0] intValue];
+    return major == 1 && numbers.count > 1 ? [numbers[1] intValue] : major;
+}
+
+NSDictionary<NSNumber *, NSString *> *installedJavaRuntimes(void) {
+    NSMutableDictionary *runtimes = [NSMutableDictionary new];
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *internal = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"java_runtimes"];
+    for (NSString *dir in [fm contentsOfDirectoryAtPath:internal error:nil]) {
+        NSArray *parts = [dir componentsSeparatedByString:@"-"]; // bundled runtimes are java-<major>-openjdk
+        if (parts.count == 3 && [parts[1] intValue] > 0) runtimes[@([parts[1] intValue])] = [internal stringByAppendingPathComponent:dir];
+    }
+    // Runtimes imported into Documents are unsigned, so they can only load while the bypass is active
+    if (canLoadUnsignedLibraries()) {
+        NSDictionary *pref = getPrefObject(@"java.java_homes");
+        NSString *external = [@(getenv("AME_HOME")) stringByAppendingPathComponent:@"java_runtimes"];
+        for (NSString *dir in [fm contentsOfDirectoryAtPath:external error:nil]) {
+            NSString *path = [external stringByAppendingPathComponent:dir];
+            int major = javaMajorOfRuntime(path);
+            // The runtime picked in Manage Runtimes wins over the bundled one of the same version
+            if (major > 0 && (!runtimes[@(major)] || [pref[@(major).stringValue] isEqualToString:dir])) runtimes[@(major)] = path;
+        }
+    }
+    return runtimes;
+}
+
+int selectJavaRuntime(int required, int preferred, NSString **javaHome) {
+    NSDictionary<NSNumber *, NSString *> *runtimes = installedJavaRuntimes();
+    NSArray<NSNumber *> *versions = [runtimes.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    if (preferred >= required && runtimes[@(preferred)]) {
+        if (javaHome) *javaHome = runtimes[@(preferred)];
+        return preferred;
+    }
+    for (NSNumber *version in versions) {
+        if (version.intValue < required) continue; // never an older Java than the pack needs
+        if (javaHome) *javaHome = runtimes[version];
+        return version.intValue;
+    }
+    return 0;
+}
+
 #pragma mark Renderer
 NSArray* getRendererKeys(BOOL containsDefault) {
     NSMutableArray *array = @[

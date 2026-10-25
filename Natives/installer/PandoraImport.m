@@ -313,6 +313,20 @@ static BOOL isSafeRelativePath(NSString *path) {
 
     if (progress) progress(@"Mod Doctor: checking for missing mods");
     NSString *doctor = [ModDoctor fixMissingModsInGameDir:destDir minecraftVersion:mcVersion loader:loader];
+
+    // Mod Doctor may have added mods, so pick Java last
+    int requiredJava = 0;
+    int java = [ModDoctor selectJavaForProfile:profile versionJSON:nil required:&requiredJava javaHome:nil warning:nil];
+    if (java) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            profile[@"javaVersion"] = @(java).stringValue;
+            [PLProfiles.current save];
+        });
+        [notes addObject:[NSString stringWithFormat:@"Java: set to Java %d%@.", java,
+            requiredJava ? [NSString stringWithFormat:@", the lowest installed version that meets this pack's Java %d requirement", requiredJava] : @""]];
+    } else {
+        [notes addObject:[NSString stringWithFormat:@"This pack needs Java %d, which isn't installed. Install an AMADORA build that includes Java %d before playing it.", requiredJava, requiredJava]];
+    }
     return [NSString stringWithFormat:@"Imported \"%@\" (%@ %@).\n\n%@%@%@",
         folderName, loader, mcVersion ?: @"unknown version",
         notes.count ? [notes componentsJoinedByString:@"\n\n"] : @"",

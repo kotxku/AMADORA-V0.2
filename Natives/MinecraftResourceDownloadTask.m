@@ -10,7 +10,11 @@
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 
-@interface MinecraftResourceDownloadTask ()
+@interface MinecraftResourceDownloadTask () {
+    // Guarded by @synchronized(self): downloads started but not yet verified, and whether more may still be queued
+    NSInteger _running;
+    BOOL _submitted, _succeeded;
+}
 @property AFURLSessionManager* manager;
 @end
 
@@ -62,9 +66,13 @@
             [self finishDownloadWithErrorString:[NSString stringWithFormat:@"Failed to verify file %@: SHA1 mismatch", path.lastPathComponent]];
         } else {
             progress.totalUnitCount = progress.completedUnitCount;
-            if (success) success();
+            if (success) success(); // may queue more downloads, so count this one done afterwards
+            [self downloadFinished];
         }
     }];
+    if (task) {
+        @synchronized (self) { _running++; }
+    }
 
     if (size && task) {
         [self addDownloadTaskToProgress:task size:size];
@@ -249,16 +257,18 @@
             self.progress.totalUnitCount--;
             self.textProgress.totalUnitCount--;
             if (self.progress.totalUnitCount == 0) {
-                // We have nothing to download, invoke completion observer
+                // We have nothing to download
                 self.progress.totalUnitCount = 1;
                 self.progress.completedUnitCount = 1;
                 self.textProgress.totalUnitCount = 1;
                 self.textProgress.completedUnitCount = 1;
+                [self finishSubmitting];
                 return;
             }
             [libTasks makeObjectsPerformSelector:@selector(resume)];
             [assetTasks makeObjectsPerformSelector:@selector(resume)];
             [self.metadata removeObjectForKey:@"assetIndexObj"];
+            [self finishSubmitting];
         }];
     }];
 }
@@ -274,6 +284,7 @@
     NSString *name = [[modDetail[@"title"] lowercaseString] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
     name = [name stringByReplacingOccurrencesOfString:@" " withString:@"_"];
     NSString *packagePath = [NSTemporaryDirectory() stringByAppendingFormat:@"/%@.zip", name];
+    self.cleanupPath = packagePath;
 
     NSURLSessionDownloadTask *task = [self createDownloadTask:url size:size sha:sha altName:nil toPath:packagePath success:^{
         NSString *path = [NSString stringWithFormat:@"%s/custom_gamedir/%@", getenv("GAME_DIR"), name];
@@ -292,6 +303,7 @@
         [self finishDownloadWithErrorString:[NSString stringWithFormat:@"%@ is not a valid .mrpack (no modrinth.index.json).", packagePath.lastPathComponent]];
         return;
     }
+    self.cleanupPath = packagePath; // the picker's temporary copy
     [[ModrinthAPI new] downloader:self submitDownloadTasksFromPackage:packagePath toPath:path];
 }
 
@@ -312,7 +324,30 @@
     [self.progressList removeAllObjects];
 }
 
+- (void)finishSubmitting {
+    @synchronized (self) { _submitted = YES; }
+    [self succeedIfDone];
+}
+
+- (void)downloadFinished {
+    @synchronized (self) { _running--; }
+    [self succeedIfDone];
+}
+
+- (void)succeedIfDone {
+    @synchronized (self) {
+        if (!_submitted || _running > 0 || _succeeded || self.progress.cancelled) return;
+        _succeeded = YES;
+    }
+    NSLog(@"[MCDL] All downloads finished");
+    if (self.cleanupPath) [NSFileManager.defaultManager removeItemAtPath:self.cleanupPath error:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.handleSuccess) self.handleSuccess();
+    });
+}
+
 - (void)finishDownloadWithErrorString:(NSString *)error {
+    self.errorString = error;
     [self.progress cancel];
     [self.manager invalidateSessionCancelingTasks:YES resetSession:YES];
     showDialog(localize(@"Error", nil), error);

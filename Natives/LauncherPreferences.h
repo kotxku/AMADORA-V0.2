@@ -22,6 +22,11 @@ CGRect getSafeArea(CGRect screenBounds);
 void setSafeArea(CGSize screenSize, CGRect safeArea);
 
 NSString* getSelectedJavaHome(NSString* defaultJRETag, int minVersion);
+// Java major version -> JAVA_HOME of every runtime that can run on this device
+NSDictionary<NSNumber *, NSString *> *installedJavaRuntimes(void);
+// Lowest installed Java >= required (preferred instead when it is installed and >= required); 0 if none qualifies
+int selectJavaRuntime(int required, int preferred, NSString **javaHome);
+BOOL canLoadUnsignedLibraries(void);
 
 NSArray* getRendererKeys(BOOL containsDefault);
 NSArray* getRendererNames(BOOL containsDefault);

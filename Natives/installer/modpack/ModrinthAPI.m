@@ -89,7 +89,6 @@
         return;
     }
 
-    downloader.progress.totalUnitCount = [indexDict[@"files"] count];
     for (NSDictionary *indexFile in indexDict[@"files"]) {
 /*
         if ([indexFile[@"downloads"] count] > 1) {
@@ -105,11 +104,10 @@
         if (task) {
             [downloader.fileList addObject:indexFile[@"path"]];
             [task resume];
-        } else if (!downloader.progress.cancelled) {
-            downloader.progress.completedUnitCount++;
-        } else {
-            return; // cancelled
+        } else if (downloader.progress.cancelled) {
+            return;
         }
+        // An existing file with a matching hash needs no download and adds nothing to the byte totals
     }
 
     [ModpackUtils archive:archive extractDirectory:@"overrides" toPath:destPath error:&error];
@@ -124,8 +122,7 @@
         return;
     }
 
-    // Delete package cache
-    [NSFileManager.defaultManager removeItemAtPath:packagePath error:nil];
+    // The package is deleted after everything succeeds (MinecraftResourceDownloadTask.cleanupPath), so Retry can reuse it
 
     // Download dependency client json (if available)
     NSDictionary<NSString *, NSString *> *depInfo = [ModpackUtils infoForDependencies:indexDict[@"dependencies"]];
@@ -147,6 +144,11 @@
             base64EncodedStringWithOptions:0]]
     }.mutableCopy;
     PLProfiles.current.selectedProfileName = indexDict[@"name"];
+
+    // Drop the unit prepareForDownload reserved, so the bar can reach 100%
+    downloader.progress.totalUnitCount--;
+    downloader.textProgress.totalUnitCount = downloader.progress.totalUnitCount;
+    [downloader finishSubmitting];
 }
 
 @end

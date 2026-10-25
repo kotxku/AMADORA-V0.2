@@ -112,6 +112,10 @@ public class NativeRedirect implements Function<String, String> {
 
     private static final String STRING_DESC = "(Ljava/lang/String;)V";
     private static final String RUNTIME_DESC = "(Ljava/lang/Runtime;Ljava/lang/String;)V";
+    private static final String THROWABLE_DESC = "(Ljava/lang/Throwable;)V";
+    // Mixin merges mod hooks into these as handler$... methods; Minecraft 26.x is unobfuscated, so the names are stable
+    private static final Set<String> CRASH_CLASSES = new HashSet<>(Arrays.asList(
+            "net/minecraft/CrashReport", "net/minecraft/SystemReport", "net/minecraft/CrashReportCategory"));
     private static final byte[] INSN_LENGTH = new byte[202];
     static {
         Arrays.fill(INSN_LENGTH, (byte) 1);
@@ -130,6 +134,9 @@ public class NativeRedirect implements Function<String, String> {
             return null;
         }
         try {
+            if (CRASH_CLASSES.contains(className)) { // none of these load natives
+                return new Patcher(original.clone()).guardCrashReports(className, className.equals("net/minecraft/CrashReport"));
+            }
             byte[] patched = new Patcher(original.clone()).patch();
             if (patched != null) System.out.println(TAG + "hooked native loading in " + className);
             return patched;
@@ -185,24 +192,18 @@ public class NativeRedirect implements Function<String, String> {
             if ((systemRefs.isEmpty() && runtimeRefs.isEmpty()) || (access & 0x0200) != 0) return null;
             int thisClass = u2(cpEnd + 2);
 
-            // Constants used by the synthetic method bodies
-            int classLoader = classRef("java/lang/ClassLoader");
-            int getSystemLoader = memberRef(10, classLoader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-            int loadClass = memberRef(10, classLoader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
-            int newInstance = memberRef(10, classRef("java/lang/Class"), "newInstance", "()Ljava/lang/Object;");
-            int function = classRef("java/util/function/Function");
-            int apply = memberRef(11, function, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;");
             int string = classRef("java/lang/String");
-            int redirectName = constant(8, utf8(NativeRedirect.class.getName()));
             int code = utf8("Code");
-            // Pushes NativeRedirect.apply(<local slot>) without linking against NativeRedirect
-            byte[] redirect = {
-                    (byte) 0xb8, hi(getSystemLoader), lo(getSystemLoader), 0x13, hi(redirectName), lo(redirectName),
-                    (byte) 0xb6, hi(loadClass), lo(loadClass), (byte) 0xb6, hi(newInstance), lo(newInstance),
-                    (byte) 0xc0, hi(function), lo(function), 0, (byte) 0xb9, hi(apply), lo(apply), 2, 0,
-                    (byte) 0xc0, hi(string), lo(string)};
+            // Pushes (String) NativeRedirect.apply(<local slot>); the slot byte at [15] is filled in per method
+            byte[] call = callFunction(NativeRedirect.class.getName(), 0);
+            byte[] redirect = Arrays.copyOf(call, call.length + 3);
+            redirect[call.length] = (byte) 0xc0; redirect[call.length + 1] = hi(string); redirect[call.length + 2] = lo(string);
 
+            int methodsCount = skipMembers(cpEnd + 8 + 2 * u2(cpEnd + 6));
+            int methodsEnd = skipMembers(methodsCount);
+            if (!runtimeRefs.isEmpty()) patchInvokeVirtual(runtimeRefs); // before the methods are copied
             ByteArrayOutputStream methods = new ByteArrayOutputStream();
+            methods.write(b, methodsCount + 2, methodsEnd - methodsCount - 2);
             int added = 0;
             if (!systemRefs.isEmpty()) {
                 int load = memberRef(10, classRef("java/lang/System"), "load", STRING_DESC);
@@ -216,7 +217,6 @@ public class NativeRedirect implements Function<String, String> {
                 int load = memberRef(10, classRef("java/lang/Runtime"), "load", STRING_DESC);
                 int name = utf8("amadora$runtimeLoad"), desc = utf8(RUNTIME_DESC);
                 retarget(runtimeRefs, thisClass, constant(12, name, desc));
-                patchInvokeVirtual(runtimeRefs);
                 redirect[15] = 0x2b; // aload_1: path, under the Runtime pushed by aload_0
                 byte[] body = new byte[redirect.length + 1];
                 body[0] = 0x2a;
@@ -224,19 +224,198 @@ public class NativeRedirect implements Function<String, String> {
                 methods.write(method(name, desc, code, 3, 2, body, new byte[]{(byte) 0xb6, hi(load), lo(load), (byte) 0xb1}));
                 added++;
             }
-            if (nextIndex > 0xffff) return null;
+            return assemble(methodsCount, methodsEnd, methods, u2(methodsCount) + added);
+        }
+
+        /**
+         * Wraps each void mixin handler (handler$...) in a catch-all that logs through CrashGuard.HookFailure and returns,
+         * and for CrashReport makes the (String, Throwable) constructor hand its exception to CrashGuard before anything else.
+         */
+        byte[] guardCrashReports(String className, boolean logOriginal) throws IOException {
+            int thisClass = u2(cpEnd + 2);
+            int desc = utf8(THROWABLE_DESC);
+            int logName = utf8("amadora$logCrash"), hookName = utf8("amadora$hookFailed");
+            int logRef = constant(10, thisClass, constant(12, logName, desc));
+            int hookRef = constant(10, thisClass, constant(12, hookName, desc));
+            int throwable = classRef("java/lang/Throwable");
+            int stackMap = utf8("StackMapTable");
 
             int methodsCount = skipMembers(cpEnd + 8 + 2 * u2(cpEnd + 6));
             int methodsEnd = skipMembers(methodsCount);
+            ByteArrayOutputStream methods = new ByteArrayOutputStream();
+            int wrapped = 0;
+            boolean logged = false;
+            for (int i = 0, o = methodsCount + 2; i < u2(methodsCount); i++) {
+                String name = utf8(u2(o + 2)), mdesc = utf8(u2(o + 4));
+                boolean wrap = name.startsWith("handler$") && mdesc.endsWith(")V");
+                boolean prologue = logOriginal && name.equals("<init>") && mdesc.equals("(Ljava/lang/String;Ljava/lang/Throwable;)V");
+                int attrs = u2(o + 6);
+                methods.write(b, o, 8);
+                o += 8;
+                for (int a = 0; a < attrs; a++) {
+                    int len = 6 + u4(o + 2);
+                    byte[] code = !utf8(u2(o)).equals("Code") ? null
+                            : wrap ? wrapCode(o, hookRef, throwable, stackMap) : prologue ? prologue(o, logRef) : null;
+                    if (code != null) {
+                        methods.write(code);
+                        if (wrap) wrapped++; else logged = true;
+                    } else {
+                        methods.write(b, o, len);
+                    }
+                    o += len;
+                }
+            }
+            int codeName = utf8("Code");
+            int added = 0;
+            byte[] call = callFunction(CrashGuard.class.getName(), 0x2a);
+            byte[] popReturn = {0x57, (byte) 0xb1};
+            if (logged) { methods.write(method(logName, desc, codeName, 2, 1, call, popReturn)); added++; }
+            byte[] hookCall = callFunction(CrashGuard.HookFailure.class.getName(), 0x2a);
+            if (wrapped > 0) { methods.write(method(hookName, desc, codeName, 2, 1, hookCall, popReturn)); added++; }
+            if (added == 0 || nextIndex > 0xffff) return null;
+            System.out.println(CrashGuard.TAG + "guarding " + className + ": " + wrapped + " mod hook(s) wrapped"
+                    + (logged ? ", original exception logged first" : ""));
+            return assemble(methodsCount, methodsEnd, methods, u2(methodsCount) + added);
+        }
+
+        // Code attribute layout at o: name u2, length u4, max_stack u2, max_locals u2, code_length u4, code, exceptions, attributes
+        private byte[] wrapCode(int o, int hookRef, int throwable, int stackMapName) throws IOException {
+            int codeLen = u4(o + 10), code = o + 14, exc = code + codeLen, excCount = u2(exc), attrs = exc + 2 + 8 * excCount;
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream c = new DataOutputStream(bytes);
+            c.writeShort(Math.max(u2(o + 6), 1)); c.writeShort(u2(o + 8));
+            c.writeInt(codeLen + 4);
+            c.write(b, code, codeLen);
+            c.write(0xb8); c.writeShort(hookRef); c.write(0xb1); // amadora$hookFailed(caught); return
+            c.writeShort(excCount + 1);
+            c.write(b, exc + 2, 8 * excCount);
+            c.writeShort(0); c.writeShort(codeLen); c.writeShort(codeLen); c.writeShort(0); // last, so the hook's own handlers win
+
+            int mapAt = -1, n = u2(attrs);
+            for (int a = 0, p = attrs + 2; a < n; a++, p += 6 + u4(p + 2)) if (utf8(u2(p)).equals("StackMapTable")) mapAt = p;
+            int lastPc = mapAt < 0 ? -1 : lastFramePc(mapAt);
+            // full_frame at the handler: no locals, the caught Throwable on the stack
+            byte[] frame = {(byte) 255, hi(codeLen - lastPc - 1), lo(codeLen - lastPc - 1), 0, 0, 0, 1, 7, hi(throwable), lo(throwable)};
+            c.writeShort(mapAt < 0 ? n + 1 : n);
+            for (int a = 0, p = attrs + 2; a < n; a++, p += 6 + u4(p + 2)) {
+                if (p != mapAt) { c.write(b, p, 6 + u4(p + 2)); continue; }
+                c.writeShort(u2(p)); c.writeInt(u4(p + 2) + frame.length);
+                c.writeShort(u2(p + 6) + 1);
+                c.write(b, p + 8, u4(p + 2) - 2);
+                c.write(frame);
+            }
+            if (mapAt < 0) { c.writeShort(stackMapName); c.writeInt(2 + frame.length); c.writeShort(1); c.write(frame); }
+            return codeAttribute(o, bytes);
+        }
+
+        // Inserts "aload_2; invokestatic amadora$logCrash" at the start; 4 bytes keep tableswitch padding unchanged.
+        // Returns null when the code carries an attribute with offsets this does not know how to shift.
+        private byte[] prologue(int o, int logRef) throws IOException {
+            int codeLen = u4(o + 10), code = o + 14, exc = code + codeLen, excCount = u2(exc), attrs = exc + 2 + 8 * excCount;
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream c = new DataOutputStream(bytes);
+            c.writeShort(Math.max(u2(o + 6), 1)); c.writeShort(u2(o + 8));
+            c.writeInt(codeLen + 4);
+            c.write(0x2c); c.write(0xb8); c.writeShort(logRef);
+            c.write(b, code, codeLen);
+            c.writeShort(excCount);
+            for (int e = exc + 2; e < attrs; e += 8) {
+                c.writeShort(u2(e) + 4); c.writeShort(u2(e + 2) + 4); c.writeShort(u2(e + 4) + 4); c.writeShort(u2(e + 6));
+            }
+            int n = u2(attrs);
+            c.writeShort(n);
+            for (int a = 0, p = attrs + 2; a < n; a++, p += 6 + u4(p + 2)) {
+                String name = utf8(u2(p));
+                int end = p + 6 + u4(p + 2);
+                if (name.equals("LineNumberTable")) {
+                    c.write(b, p, 8);
+                    for (int e = p + 8; e < end; e += 4) { c.writeShort(u2(e) + 4); c.writeShort(u2(e + 2)); }
+                } else if (name.equals("LocalVariableTable") || name.equals("LocalVariableTypeTable")) {
+                    c.write(b, p, 8);
+                    for (int e = p + 8; e < end; e += 10) {
+                        boolean fromStart = u2(e) == 0; // parameters stay in scope over the inserted code
+                        c.writeShort(fromStart ? 0 : u2(e) + 4); c.writeShort(u2(e + 2) + (fromStart ? 4 : 0));
+                        c.write(b, e + 4, 6);
+                    }
+                } else if (name.equals("StackMapTable")) {
+                    ByteArrayOutputStream frames = new ByteArrayOutputStream();
+                    int f = p + 8, type = u2(p + 6) == 0 ? -1 : b[f] & 0xff, rest;
+                    if (type < 0) rest = f;
+                    else if (type < 128) { // same_frame / same_locals_1_stack_item: the delta lives in the type byte
+                        int delta = (type & 63) + 4;
+                        if (delta < 64) frames.write(type < 64 ? delta : 64 + delta);
+                        else { frames.write(type < 64 ? 251 : 247); frames.write(hi(delta)); frames.write(lo(delta)); }
+                        rest = f + 1;
+                    } else if (type >= 247) {
+                        frames.write(type); frames.write(hi(u2(f + 1) + 4)); frames.write(lo(u2(f + 1) + 4));
+                        rest = f + 3;
+                    } else return null;
+                    frames.write(b, rest, end - rest);
+                    c.writeShort(u2(p)); c.writeInt(2 + frames.size()); c.writeShort(u2(p + 6));
+                    frames.writeTo(c);
+                } else {
+                    return null;
+                }
+            }
+            return codeAttribute(o, bytes);
+        }
+
+        private byte[] codeAttribute(int o, ByteArrayOutputStream body) throws IOException {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream c = new DataOutputStream(bytes);
+            c.writeShort(u2(o)); c.writeInt(body.size());
+            body.writeTo(c);
+            return bytes.toByteArray();
+        }
+
+        private int lastFramePc(int map) {
+            int pc = -1;
+            for (int i = 0, n = u2(map + 6), f = map + 8; i < n; i++) {
+                int type = b[f] & 0xff;
+                int delta = type < 64 ? type : type < 128 ? type - 64 : u2(f + 1);
+                if (type < 64) f += 1;
+                else if (type < 128) f = skipTypes(f + 1, 1);
+                else if (type == 247) f = skipTypes(f + 3, 1);
+                else if (type >= 248 && type <= 251) f += 3;
+                else if (type >= 252 && type <= 254) f = skipTypes(f + 3, type - 251);
+                else if (type == 255) { f = skipTypes(f + 5, u2(f + 3)); f = skipTypes(f + 2, u2(f)); }
+                else throw new IllegalStateException("stack map frame type " + type);
+                pc += delta + 1;
+            }
+            return pc;
+        }
+
+        private int skipTypes(int f, int n) {
+            for (; n > 0; n--) f += (b[f] & 0xff) >= 7 ? 3 : 1; // Object and Uninitialized carry a u2
+            return f;
+        }
+
+        // Pushes new <className>().apply(<value pushed by the aload opcode>) through the system class loader, so the
+        // patched class never links against the agent and Knot's class path isolation never applies
+        private byte[] callFunction(String className, int aload) throws IOException {
+            int classLoader = classRef("java/lang/ClassLoader");
+            int getSystemLoader = memberRef(10, classLoader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+            int loadClass = memberRef(10, classLoader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+            int newInstance = memberRef(10, classRef("java/lang/Class"), "newInstance", "()Ljava/lang/Object;");
+            int function = classRef("java/util/function/Function");
+            int apply = memberRef(11, function, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;");
+            int name = constant(8, utf8(className));
+            return new byte[]{
+                    (byte) 0xb8, hi(getSystemLoader), lo(getSystemLoader), 0x13, hi(name), lo(name),
+                    (byte) 0xb6, hi(loadClass), lo(loadClass), (byte) 0xb6, hi(newInstance), lo(newInstance),
+                    (byte) 0xc0, hi(function), lo(function), (byte) aload, (byte) 0xb9, hi(apply), lo(apply), 2, 0};
+        }
+
+        // Header, constant pool plus the appended constants, everything up to the methods, then the given methods
+        private byte[] assemble(int methodsCount, int methodsEnd, ByteArrayOutputStream methods, int count) throws IOException {
+            if (nextIndex > 0xffff) return null;
             ByteArrayOutputStream out = new ByteArrayOutputStream(b.length + extraBytes.size() + methods.size());
             out.write(b, 0, 8);
             out.write(hi(nextIndex)); out.write(lo(nextIndex));
             out.write(b, 10, cpEnd - 10);
             extraBytes.writeTo(out);
             out.write(b, cpEnd, methodsCount - cpEnd);
-            int count = u2(methodsCount) + added;
             out.write(hi(count)); out.write(lo(count));
-            out.write(b, methodsCount + 2, methodsEnd - methodsCount - 2);
             methods.writeTo(out);
             out.write(b, methodsEnd, b.length - methodsEnd);
             return out.toByteArray();

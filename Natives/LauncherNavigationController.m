@@ -1,9 +1,11 @@
+#import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "authenticator/BaseAuthenticator.h"
 #import "AFNetworking.h"
 #import "ALTServerConnection.h"
 #import "CustomControlsViewController.h"
 #import "DownloadProgressViewController.h"
+#import "installer/ModDoctor.h"
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
@@ -23,8 +25,6 @@
 
 #define AUTORESIZE_MASKS UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
 
-static void *ProgressObserverContext = &ProgressObserverContext;
-
 @interface LauncherNavigationController () <UIDocumentPickerDelegate, UIPickerViewDataSource, PLPickerViewDelegate, UIPopoverPresentationControllerDelegate> {
 }
 
@@ -36,6 +36,11 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 @property(nonatomic) UIButton* buttonInstall;
 @property(nonatomic) UIBarButtonItem* buttonInstallItem;
 @property(nonatomic) int profileSelectedAt;
+@property(nonatomic) NSTimer *progressTimer;
+@property(nonatomic) CFTimeInterval lastSpeedTime;
+@property(nonatomic) int64_t lastCompletedUnitCount;
+// Set while a failed download offers Retry on the Play button
+@property(nonatomic, copy) void (^retryDownload)(void);
 
 @end
 
@@ -292,8 +297,6 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         return;
     }
 
-    [self setInteractionEnabled:NO forDownloading:YES];
-
     NSString *versionId = PLProfiles.current.profiles[self.versionTextField.text][@"lastVersionId"];
     NSDictionary *object = [remoteVersionList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"(id == %@)", versionId]].firstObject;
     if (!object) {
@@ -303,30 +306,172 @@ static void *ProgressObserverContext = &ProgressObserverContext;
         };
     }
 
-    self.task = [MinecraftResourceDownloadTask new];
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        __weak LauncherNavigationController *weakSelf = self;
-        self.task.handleError = ^{
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf setInteractionEnabled:YES forDownloading:YES];
-                weakSelf.task = nil;
-                weakSelf.progressVC = nil;
-            });
-        };
-        [self.task downloadVersion:object];
+    __weak LauncherNavigationController *weakSelf = self;
+    [self runDownload:^(MinecraftResourceDownloadTask *task) {
+        [task downloadVersion:object];
+    } retry:^{
+        [weakSelf launchMinecraft:sender];
+    }];
+}
+
+// Starts a download off the main thread. A main-thread timer polls the progress and success/failure arrive on the
+// main thread, so the bar never depends on KVO timing or on the app going to the background and back.
+- (void)runDownload:(void (^)(MinecraftResourceDownloadTask *task))start retry:(void (^)(void))retry {
+    self.retryDownload = nil;
+    [self setInteractionEnabled:NO forDownloading:YES];
+    MinecraftResourceDownloadTask *task = [MinecraftResourceDownloadTask new];
+    self.task = task;
+    self.lastSpeedTime = 0;
+    __weak LauncherNavigationController *weakSelf = self;
+    task.handleError = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
-            [self.task.progress addObserver:self
-                forKeyPath:@"fractionCompleted"
-                options:NSKeyValueObservingOptionInitial
-                context:ProgressObserverContext];
+            [weakSelf downloadFailed:task retry:retry];
+        });
+    };
+    task.handleSuccess = ^{
+        [weakSelf downloadFinished:task];
+    };
+    [self.progressTimer invalidate];
+    self.progressTimer = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *timer) {
+        [weakSelf updateDownloadProgress];
+    }];
+    // Common modes keep it ticking while a table or picker is being scrolled
+    [NSRunLoop.mainRunLoop addTimer:self.progressTimer forMode:NSRunLoopCommonModes];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        start(task);
+    });
+}
+
+- (void)updateDownloadProgress {
+    NSProgress *total = self.task.progress, *text = self.task.textProgress;
+    if (!total || !text) return; // the task hasn't prepared its progress yet
+
+    double fraction = MIN(MAX(total.fractionCompleted, 0), 1);
+    self.progressViewMain.progress = fraction;
+    // Rounded: truncating left the count a byte short, so "413.7 MB of 413.7 MB" never counted as finished
+    int64_t completed = llround(total.totalUnitCount * fraction);
+    text.totalUnitCount = total.totalUnitCount;
+    text.completedUnitCount = completed;
+
+    // Download speed and ETA, sampled once a second
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - self.lastSpeedTime >= 1) {
+        if (self.lastSpeedTime > 0) {
+            double throughput = (completed - self.lastCompletedUnitCount) / (now - self.lastSpeedTime);
+            text.throughput = @((NSInteger)throughput);
+            text.estimatedTimeRemaining = throughput > 0 ? @((text.totalUnitCount - completed) / throughput) : nil;
+        }
+        self.lastCompletedUnitCount = completed;
+        self.lastSpeedTime = now;
+    }
+    self.progressText.text = text.localizedAdditionalDescription;
+}
+
+- (void)stopDownloadUI {
+    [self.progressTimer invalidate];
+    self.progressTimer = nil;
+    [self.progressVC dismissViewControllerAnimated:NO completion:nil];
+    self.progressVC = nil;
+}
+
+- (void)downloadFinished:(MinecraftResourceDownloadTask *)task {
+    if (task != self.task) return;
+    [self stopDownloadUI];
+    self.task = nil;
+    if (!task.metadata) {
+        // A modpack finished installing: show its new profile and make it the one Play launches
+        [self reloadProfileList];
+        for (UIViewController *vc in self.viewControllers) {
+            if ([vc isKindOfClass:UITableViewController.class]) [((UITableViewController *)vc).tableView reloadData];
+        }
+    }
+    [self selectJavaAndLaunch:task.metadata];
+}
+
+// Picks Java from what Minecraft and every mod need (off the main thread: it opens each mod jar), stores it in the
+// profile and warns about mods switched off for iOS. With metadata it then launches; without, it only prepares.
+- (void)selectJavaAndLaunch:(NSDictionary *)metadata {
+    NSString *profileName = PLProfiles.current.selectedProfileName;
+    NSDictionary *profile = [PLProfiles.current.selectedProfile copy];
+    [self setInteractionEnabled:NO forDownloading:NO];
+    self.progressText.text = @"Checking Java and mods";
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        int required = 0;
+        NSString *warning;
+        int selected = [ModDoctor selectJavaForProfile:profile versionJSON:metadata required:&required javaHome:nil warning:&warning];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self setInteractionEnabled:YES forDownloading:YES];
+            if (!selected) {
+                [self showMissingJava:required];
+                return;
+            }
+            NSMutableDictionary *saved = PLProfiles.current.profiles[profileName];
+            if (saved && [saved[@"javaVersion"] intValue] != selected) {
+                saved[@"javaVersion"] = @(selected).stringValue;
+                [PLProfiles.current save];
+            }
+            void (^next)(void) = ^{
+                if (!metadata) return;
+                [self invokeAfterJITEnabled:^{
+                    UIKit_launchMinecraftSurfaceVC(self.view.window, metadata);
+                }];
+            };
+            if (!warning) {
+                next();
+                return;
+            }
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Some mods were switched off" message:warning preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:metadata ? @"Continue" : @"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                next();
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
         });
     });
 }
 
+- (void)showMissingJava:(int)version {
+    // Runtimes have to be code-signed into the app on iOS, so there is nothing to download into Documents here
+    NSString *message = [NSString stringWithFormat:@"No Java %d or newer runtime is installed. iOS only lets AMADORA run Java runtimes that are signed into the app, so it can't download one for you. Install an AMADORA build that includes Java %d (your profiles and worlds are kept), then launch again.%@",
+        version, version, canLoadUnsignedLibraries() ? @"\n\nOr import one in Settings > Manage Runtimes." : @""];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"This pack needs Java %d", version] message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Install" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        openLink(self, [NSURL URLWithString:@"https://github.com/kotxku/AMADORA-V0.2/releases"]);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:localize(@"Cancel", nil) style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+
+- (void)downloadFailed:(MinecraftResourceDownloadTask *)task retry:(void (^)(void))retry {
+    if (task != self.task) return;
+    [self stopDownloadUI];
+    self.task = nil;
+    [self setInteractionEnabled:YES forDownloading:YES];
+    // Failed state: the error dialog has the details, the bar keeps a short reason and the button retries
+    self.retryDownload = retry;
+    self.versionTextField.alpha = 0.2;
+    self.progressText.text = [NSString stringWithFormat:@"Download failed: %@",
+        [task.errorString componentsSeparatedByString:@"\n"].firstObject ?: @"unknown error"];
+    if (self.buttonInstall) {
+        [self.buttonInstall setTitle:@"Retry" forState:UIControlStateNormal];
+    } else {
+        self.buttonInstallItem.title = @"Retry";
+    }
+}
+
+- (void)clearRetryDownload {
+    if (!self.retryDownload) return;
+    self.retryDownload = nil;
+    [self setInteractionEnabled:YES forDownloading:YES];
+}
+
 - (void)performInstallOrShowDetails:(id)sender {
     BOOL usesBarButtonItem = [sender isKindOfClass:UIBarButtonItem.class];
-    if (self.task) {
+    if (self.retryDownload) {
+        void (^retry)(void) = self.retryDownload;
+        self.retryDownload = nil;
+        retry();
+    } else if (self.task) {
         if (!self.progressVC) {
             UIViewController *vc = [[DownloadProgressViewController alloc] initWithTask:self.task];
             self.progressVC = [[UINavigationController alloc] initWithRootViewController:vc];
@@ -336,7 +481,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
             // "UIPopoverPresentationController () should have a non-nil sourceView or barButtonItem set before the presentation occurs."
             return;
         }
-        
+
         if (usesBarButtonItem) {
             self.progressVC.popoverPresentationController.barButtonItem = sender;
         } else {
@@ -351,79 +496,21 @@ static void *ProgressObserverContext = &ProgressObserverContext;
     }
 }
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
-    if (context != ProgressObserverContext) {
-        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
-        return;
-    }
-
-    // Calculate download speed and ETA
-    static CGFloat lastMsTime;
-    static NSUInteger lastSecTime, lastCompletedUnitCount;
-    NSProgress *progress = self.task.textProgress;
-    struct timeval tv;
-    gettimeofday(&tv, NULL); 
-    NSInteger completedUnitCount = self.task.progress.totalUnitCount * self.task.progress.fractionCompleted;
-    progress.completedUnitCount = completedUnitCount;
-    if (lastSecTime < tv.tv_sec) {
-        CGFloat currentTime = tv.tv_sec + tv.tv_usec / 1000000.0;
-        NSInteger throughput = (completedUnitCount - lastCompletedUnitCount) / (currentTime - lastMsTime);
-        progress.throughput = @(throughput);
-        progress.estimatedTimeRemaining = @((progress.totalUnitCount - completedUnitCount) / throughput);
-        lastCompletedUnitCount = completedUnitCount;
-        lastSecTime = tv.tv_sec;
-        lastMsTime = currentTime;
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.progressText.text = progress.localizedAdditionalDescription;
-
-        if (!progress.finished) return;
-        [self.progressVC dismissModalViewControllerAnimated:NO];
-
-        self.progressViewMain.observedProgress = nil;
-        if (self.task.metadata) {
-            __block NSDictionary *metadata = self.task.metadata;
-            [self invokeAfterJITEnabled:^{
-                UIKit_launchMinecraftSurfaceVC(self.view.window, metadata);
-            }];
-        } else {
-            [self reloadProfileList];
-        }
-        self.task = nil;
-        [self setInteractionEnabled:YES forDownloading:YES];
-    });
-}
-
 - (void)receiveNotification:(NSNotification *)notification {
     if (![notification.name isEqualToString:@"InstallModpack"]) {
         return;
     }
-    [self setInteractionEnabled:NO forDownloading:YES];
-    self.task = [MinecraftResourceDownloadTask new];
     NSDictionary *userInfo = notification.userInfo;
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        __weak LauncherNavigationController *weakSelf = self;
-        self.task.handleError = ^{
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf setInteractionEnabled:YES forDownloading:YES];
-                weakSelf.task = nil;
-                weakSelf.progressVC = nil;
-            });
-        };
+    __weak LauncherNavigationController *weakSelf = self;
+    [self runDownload:^(MinecraftResourceDownloadTask *task) {
         if (userInfo[@"localPackage"]) {
-            [self.task downloadModpackFromPackage:userInfo[@"localPackage"]];
+            [task downloadModpackFromPackage:userInfo[@"localPackage"]];
         } else {
-            [self.task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
+            [task downloadModpackFromAPI:notification.object detail:userInfo[@"detail"] atIndex:[userInfo[@"index"] unsignedLongValue]];
         }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.progressViewMain.observedProgress = self.task.progress;
-            [self.task.progress addObserver:self
-                forKeyPath:@"fractionCompleted"
-                options:NSKeyValueObservingOptionInitial
-                context:ProgressObserverContext];
-        });
-    });
+    } retry:^{
+        [weakSelf receiveNotification:notification];
+    }];
 }
 
 - (void)invokeAfterJITEnabled:(void(^)(void))handler {
@@ -487,6 +574,7 @@ static void *ProgressObserverContext = &ProgressObserverContext;
 #pragma mark - UIPickerView stuff
 - (void)pickerView:(PLPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
     self.profileSelectedAt = row;
+    [self clearRetryDownload]; // a different profile shouldn't offer to retry the old download
     //((UIImageView *)self.versionTextField.leftView).image = [pickerView imageAtRow:row column:component];
     ((UIImageView *)self.versionTextField.leftView).image = [pickerView imageAtRow:row column:component];
     self.versionTextField.text = [self pickerView:pickerView titleForRow:row forComponent:component];
