@@ -16,7 +16,9 @@ grep -q '@loader_path/libMoltenVK.dylib' "$SRC/src/gallium/drivers/zink/zink_scr
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CC="$(xcrun --sdk iphoneos -f clang)"
 CXX="$(xcrun --sdk iphoneos -f clang++)"
-FLAGS="'-arch', 'arm64', '-isysroot', '$SDK', '-miphoneos-version-min=14.0'"
+# MoltenVK's headers turn on the Metal and iOS surface platforms, but only after some files already included
+# vulkan.h without them; defining them everywhere keeps the generated dispatch tables and vulkan.h in agreement
+FLAGS="'-arch', 'arm64', '-isysroot', '$SDK', '-miphoneos-version-min=14.0', '-DVK_USE_PLATFORM_METAL_EXT', '-DVK_USE_PLATFORM_IOS_MVK'"
 cat > "$SRC/ios-cross.txt" <<EOF
 [binaries]
 c = '$CC'
