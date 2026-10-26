@@ -12,6 +12,10 @@ BUILD="$SRC/build-ios"
 sed -i '' 's|#define VK_LIBNAME "libvulkan.1.dylib"|#define VK_LIBNAME "@loader_path/libMoltenVK.dylib"|' \
     "$SRC/src/gallium/drivers/zink/zink_screen.c"
 grep -q '@loader_path/libMoltenVK.dylib' "$SRC/src/gallium/drivers/zink/zink_screen.c" || { echo "VK_LIBNAME not patched"; exit 1; }
+# OSMesa only links the software rasterizers; sw_screen_create_named already handles GALLIUM_DRIVER=zink once Zink is linked in
+sed -i '' 's/dep_unwind, driver_swrast, idep_mesautil,/dep_unwind, driver_swrast, driver_zink, idep_mesautil,/' \
+    "$SRC/src/gallium/targets/osmesa/meson.build"
+grep -q 'driver_zink' "$SRC/src/gallium/targets/osmesa/meson.build" || { echo "OSMesa not patched to link Zink"; exit 1; }
 
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CC="$(xcrun --sdk iphoneos -f clang)"
@@ -57,26 +61,21 @@ meson setup "$BUILD" "$SRC" --cross-file "$SRC/ios-cross.txt" \
     -Dmoltenvk-dir="$MVK/MoltenVK"
 ninja -C "$BUILD"
 
-mkdir -p "$OUT"
-OSMESA="$(find "$BUILD" -name 'libOSMesa.8.dylib' -type f | head -1)"
-GLAPI="$(find "$BUILD" -name 'libglapi.0.dylib' -type f | head -1)"
-cp "$OSMESA" "$OUT/libOSMesa.8.dylib"
-cp "$GLAPI" "$OUT/libglapi.0.dylib"
-# Same install names as the Mesa 21.0 build, so dlopen("@rpath/libOSMesa.8.dylib") and its glapi link resolve in Frameworks
+rm -rf "$OUT" && mkdir -p "$OUT"
+cp "$(find "$BUILD" -name 'libOSMesa.8.dylib' -type f | head -1)" "$OUT/libOSMesa.8.dylib"
+# Same install name as the Mesa 21.0 build, so dlopen("@rpath/libOSMesa.8.dylib") resolves in Frameworks.
+# Mesa 25.0 links glapi into libOSMesa; the old libglapi.0.dylib stays in Frameworks for the other renderers.
 install_name_tool -id @rpath/libOSMesa.8.dylib "$OUT/libOSMesa.8.dylib"
-install_name_tool -id @rpath/libglapi.0.dylib "$OUT/libglapi.0.dylib"
-OLD_GLAPI="$(otool -L "$OUT/libOSMesa.8.dylib" | awk '/libglapi/ {print $1}')"
-[ "$OLD_GLAPI" = "@rpath/libglapi.0.dylib" ] || install_name_tool -change "$OLD_GLAPI" @rpath/libglapi.0.dylib "$OUT/libOSMesa.8.dylib"
-otool -l "$OUT/libOSMesa.8.dylib" | grep -q LC_RPATH || install_name_tool -add_rpath @loader_path "$OUT/libOSMesa.8.dylib"
+if otool -L "$OUT/libOSMesa.8.dylib" | grep -q libglapi; then echo "libOSMesa still links a separate libglapi"; exit 1; fi
 
 # Fail the build rather than ship a macOS binary, one without Zink, or one missing the entry points osm_bridge uses
 for lib in "$OUT"/*.dylib; do
     otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -q "platform 2" || { echo "$lib is not an iOS binary"; exit 1; }
 done
-# osm_bridge dlsyms these through libOSMesa's handle, which also searches libglapi
+# osm_bridge dlsyms these through the libOSMesa handle
 for sym in OSMesaCreateContext OSMesaMakeCurrent OSMesaGetCurrentContext OSMesaDestroyContext OSMesaPixelStore OSMesaGetProcAddress glGetString glFinish; do
     nm -gU "$OUT"/*.dylib | grep -q " _$sym\$" || { echo "libOSMesa does not export $sym"; exit 1; }
 done
 strings "$OUT/libOSMesa.8.dylib" | grep -q '@loader_path/libMoltenVK.dylib' || { echo "Zink not built in"; exit 1; }
 otool -L "$OUT/libOSMesa.8.dylib"
-echo "Built $OUT/libOSMesa.8.dylib and libglapi.0.dylib"
+echo "Built $OUT/libOSMesa.8.dylib"
