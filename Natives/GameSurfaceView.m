@@ -17,7 +17,9 @@
 }
 
 + (Class)layerClass {
-    if ([[PLProfiles resolveKeyForCurrentProfile:@"renderer"] hasPrefix:@"libOSMesa"]) {
+    // RENDERER is resolved (auto included) just before the game view is created
+    NSString *renderer = getenv("RENDERER") ? @(getenv("RENDERER")) : [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
+    if ([renderer hasPrefix:@"libOSMesa"]) {
         return CALayer.class;
     } else {
         return CAMetalLayer.class;

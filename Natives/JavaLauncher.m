@@ -111,6 +111,31 @@ static BOOL requiresLWJGL34(id launchTarget) {
     return NO;
 }
 
+NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error) {
+    NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"] ?: @"auto";
+    // Minecraft 26.1+ (the LWJGL 3.4 versions) needs OpenGL 3.3 core with texture buffers. iOS has no OpenGL ES above
+    // 3.0 (EAGL and ANGLE's Metal backend both stop there), so MobileGlues can't reach it; Zink on MoltenVK can.
+    BOOL needsGL33 = requiresLWJGL34(metadata);
+    if ([renderer isEqualToString:@"auto"] && needsGL33) {
+        NSString *frameworks = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks"];
+        for (NSString *lib in @[@ RENDERER_NAME_VK_ZINK, @"libMoltenVK.dylib", @"libglapi.0.dylib"]) {
+            if ([fm fileExistsAtPath:[frameworks stringByAppendingPathComponent:lib]]) continue;
+            NSLog(@"[RendererSelect] auto: this version needs OpenGL 3.3 but %@ is missing, so no renderer can run it", lib);
+            if (error) *error = [NSString stringWithFormat:@"This Minecraft version needs OpenGL 3.3. On iOS only the Zink (Vulkan) renderer can provide it, and this AMADORA build doesn't include it (%@ is missing). Install a full AMADORA build and try again.", lib];
+            return nil;
+        }
+        renderer = @ RENDERER_NAME_VK_ZINK;
+        NSLog(@"[RendererSelect] auto -> %@: this version needs OpenGL 3.3; Zink on MoltenVK provides OpenGL 4.1, MobileGlues only gets OpenGL ES 3.0 on iOS", renderer);
+    } else if ([renderer isEqualToString:@"auto"]) {
+        NSLog(@"[RendererSelect] auto: chosen from the OpenGL version Minecraft requests (gl4es for 1.x/2.x, MobileGlues otherwise)");
+    } else {
+        NSLog(@"[RendererSelect] %@ (set in the profile)%@", renderer, needsGL33 && ![renderer isEqualToString:@ RENDERER_NAME_VK_ZINK]
+            ? @"; warning: this version needs OpenGL 3.3, which only Zink provides on iOS" : @"");
+    }
+    setenv("RENDERER", renderer.UTF8String, 1);
+    return renderer;
+}
+
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion) {
     NSLog(@"[JavaLauncher] Beginning JVM launch");
 
@@ -182,9 +207,14 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
         }
 
         // Setup RENDERER
-        NSString *renderer = [PLProfiles resolveKeyForCurrentProfile:@"renderer"];
+        NSString *rendererError;
+        NSString *renderer = resolveLaunchRenderer(launchTarget, &rendererError);
+        if (!renderer) {
+            UIKit_returnToSplitView();
+            showDialog(localize(@"Error", nil), rendererError);
+            return 1;
+        }
         NSLog(@"[JavaLauncher] RENDERER is set to %@\n", renderer);
-        setenv("RENDERER", renderer.UTF8String, 1);
         // Setup gameDir
         gameDir = [NSString stringWithFormat:@"%s/instances/%@/%@",
             getenv("AME_HOME"), getPrefObject(@"general.game_directory"),

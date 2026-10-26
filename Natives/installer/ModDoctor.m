@@ -200,7 +200,8 @@ static NSDictionary<NSString *, NSString *> *unsupportedMods(void) {
     return @{
         @"c2me": @"C2ME: its native code has no iOS build and crashes Minecraft",
         @"physicsmod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version",
-        @"physics-mod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version"
+        @"physics-mod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version",
+        @"zfastnoise-ocl": @"Fast Noise OpenCL: needs OpenCL, which iOS doesn't have"
     };
 }
 
@@ -267,6 +268,57 @@ static int minJavaForPredicate(NSString *predicate) {
     }
 }
 
+// An unsupported mod bundled jar-in-jar (zfastnoise ships zfastnoise-ocl inside it) can't be renamed away, so the outer
+// jar is rebuilt without it; the untouched original stays next to it as .jar.original. Returns a report line, or nil.
++ (NSString *)stripUnsupportedNestedJarsFrom:(NSString *)path fileName:(NSString *)file {
+    UZKArchive *archive = [[UZKArchive alloc] initWithPath:path error:nil];
+    NSMutableDictionary *json = [typed([self parseJSON:[archive extractDataFromFile:@"fabric.mod.json" error:nil]], NSDictionary.class) mutableCopy];
+    NSMutableArray *keptJars = [NSMutableArray new];
+    NSMutableSet<NSString *> *dropped = [NSMutableSet new];
+    NSMutableArray *reasons = [NSMutableArray new];
+    for (NSDictionary *jar in typed(json[@"jars"], NSArray.class)) {
+        NSString *inner = typed(typed(jar, NSDictionary.class)[@"file"], NSString.class);
+        NSString *reason;
+        for (NSString *key in unsupportedMods()) {
+            if ([inner.lastPathComponent.lowercaseString hasPrefix:key]) reason = unsupportedMods()[key];
+        }
+        if (reason) {
+            [dropped addObject:inner];
+            [reasons addObject:[NSString stringWithFormat:@"%@ (%@ in %@)", reason, inner.lastPathComponent, file]];
+        } else {
+            [keptJars addObject:jar];
+        }
+    }
+    if (!dropped.count) return nil;
+
+    json[@"jars"] = keptJars;
+    NSData *newJSON = [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *tmp = [path stringByAppendingString:@".tmp"];
+    [NSFileManager.defaultManager removeItemAtPath:tmp error:nil];
+    UZKArchive *rebuilt = [[UZKArchive alloc] initWithPath:tmp error:nil];
+    BOOL ok = newJSON && rebuilt;
+    for (UZKFileInfo *info in ok ? [archive listFileInfo:nil] : @[]) {
+        if (info.isDirectory || [dropped containsObject:info.filename]) continue;
+        NSData *data = [info.filename isEqualToString:@"fabric.mod.json"] ? newJSON : [archive extractData:info error:nil];
+        if (!data || ![rebuilt writeData:data filePath:info.filename error:nil]) {
+            ok = NO;
+            break;
+        }
+    }
+    NSString *original = [path stringByAppendingString:@".original"];
+    NSFileManager *files = NSFileManager.defaultManager;
+    [files removeItemAtPath:original error:nil];
+    if (!ok || ![files moveItemAtPath:path toPath:original error:nil] || ![files moveItemAtPath:tmp toPath:path error:nil]) {
+        NSLog(@"[ModDoctor] Couldn't remove %@ from %@", [dropped.allObjects componentsJoinedByString:@", "], file);
+        [files removeItemAtPath:tmp error:nil];
+        if (![files fileExistsAtPath:path]) [files moveItemAtPath:original toPath:path error:nil];
+        return nil;
+    }
+    NSLog(@"[ModDoctor] Switched off %@ (kept the rest of %@; original saved as %@)",
+        [reasons componentsJoinedByString:@", "], file, original.lastPathComponent);
+    return [reasons componentsJoinedByString:@"\n"];
+}
+
 + (NSString *)prepareModsIn:(NSString *)modsDir requiredJava:(int *)requiredJava requiredBy:(NSString **)requiredBy {
     NSMutableArray *disabled = [NSMutableArray new];
     int best = 0;
@@ -286,12 +338,31 @@ static int minJavaForPredicate(NSString *predicate) {
             }
             continue;
         }
+        NSString *stripped = [self stripUnsupportedNestedJarsFrom:path fileName:file];
+        if (stripped) [disabled addObject:stripped];
         if (requiredJava) [self scanJavaOfJar:path fileName:file best:&best mod:&bestMod];
     }
     if (requiredJava) *requiredJava = best;
     if (requiredBy) *requiredBy = bestMod;
     return disabled.count ? [NSString stringWithFormat:@"Switched off mods that can't work on iOS:\n%@\n\nThey were renamed to .jar.disabled in mods/.",
         [disabled componentsJoinedByString:@"\n"]] : nil;
+}
+
+// A vanilla version JSON from Mojang's version manifest, or nil (unknown id, offline). Blocking.
++ (NSDictionary *)mojangVersionJSON:(NSString *)versionId {
+    static NSArray *versions;
+    if (!versions) {
+        NSDictionary *manifest = typed([self parseJSON:[self fetch:@"https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"]], NSDictionary.class);
+        versions = typed(manifest[@"versions"], NSArray.class);
+    }
+    for (NSDictionary *version in versions) {
+        if (![typed(version, NSDictionary.class)[@"id"] isEqual:versionId]) continue;
+        NSString *url = typed(version[@"url"], NSString.class);
+        NSDictionary *json = url ? typed([self parseJSON:[self fetch:url]], NSDictionary.class) : nil;
+        NSLog(@"[JavaSelect] %@ isn't downloaded yet; read javaVersion %@ from Mojang's manifest", versionId, json[@"javaVersion"][@"majorVersion"] ?: @"(unavailable)");
+        return json;
+    }
+    return nil;
 }
 
 // javaVersion.majorVersion of a version JSON, following inheritsFrom (a loader profile usually doesn't set its own)
@@ -304,6 +375,8 @@ static int minJavaForPredicate(NSString *predicate) {
         if (!json) {
             NSString *path = [NSString stringWithFormat:@"%1$s/versions/%2$@/%2$@.json", getenv("GAME_DIR"), versionId];
             json = typed([self parseJSON:[NSData dataWithContentsOfFile:path]], NSDictionary.class);
+            // Not downloaded yet (a freshly imported pack): read javaVersion from Mojang's copy instead of reporting 0
+            if (!json) json = [self mojangVersionJSON:versionId];
             if (!json) break;
         }
         NSDictionary *java = typed(json[@"javaVersion"], NSDictionary.class);
@@ -326,8 +399,8 @@ static int minJavaForPredicate(NSString *predicate) {
     int selected = selectJavaRuntime(need, [profile[@"javaVersion"] intValue], &home);
 
     NSArray *installed = [installedJavaRuntimes().allKeys sortedArrayUsingSelector:@selector(compare:)];
-    NSLog(@"[JavaSelect] %@: Minecraft %@ needs Java %d, mods need Java %d%@; installed: %@ -> %@",
-        profile[@"name"] ?: versionId, versionId, mcJava, modJava,
+    NSLog(@"[JavaSelect] %@: Minecraft %@ needs Java %@, mods need Java %d%@; installed: %@ -> %@",
+        profile[@"name"] ?: versionId, versionId, mcJava ? @(mcJava).stringValue : @"(unknown: version JSON unavailable)", modJava,
         mod ? [NSString stringWithFormat:@" (highest: %@)", mod] : @"",
         [installed componentsJoinedByString:@", "],
         selected ? [NSString stringWithFormat:@"selected Java %d (%@)", selected, home]

@@ -307,6 +307,10 @@ jre: native
 
 dep_mg:
 	echo '[Amethyst v$(VERSION)] dep_mg - start'
+	# Amadora's shader dump/error logging on top of the pinned MobileGlues; skipped when already applied
+	cd $(SOURCEDIR)/Natives/external/MobileGlues && \
+		(git apply --reverse --check $(SOURCEDIR)/tools/patches/mobileglues-shader-dump.patch 2>/dev/null || \
+		git apply $(SOURCEDIR)/tools/patches/mobileglues-shader-dump.patch)
 	mkdir -p $(WORKINGDIR)/mobileglues
 	cd $(WORKINGDIR)/mobileglues && cmake \
 		-DMACOS="1" \

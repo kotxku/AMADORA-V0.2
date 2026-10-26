@@ -18,6 +18,7 @@
 #import "UIKit+AFNetworking.h"
 #import "UIKit+hook.h"
 #import "ios_uikit_bridge.h"
+#import "JavaLauncher.h"
 #import "utils.h"
 
 #import <objc/runtime.h>
@@ -412,6 +413,12 @@
             }
             void (^next)(void) = ^{
                 if (!metadata) return;
+                // Before the game view exists: its layer type depends on the renderer
+                NSString *rendererError;
+                if (!resolveLaunchRenderer(metadata, &rendererError)) {
+                    showDialog(@"No renderer can run this version", rendererError);
+                    return;
+                }
                 [self invokeAfterJITEnabled:^{
                     UIKit_launchMinecraftSurfaceVC(self.view.window, metadata);
                 }];

@@ -321,6 +321,36 @@ public class GLFW
     GLFW_LOCK_KEY_MODS        = 0x33004,
     GLFW_RAW_MOUSE_MOTION     = 0x33005;
 
+    /** Constants LWJGL 3.4.1 GLFW defines that the stub lacked (GLFW 3.4/3.5 additions, IME included). */
+    public static final int
+    GLFW_PLATFORM_UNAVAILABLE         = 0x1000E,
+    GLFW_MOUSE_PASSTHROUGH            = 0x2000D,
+    GLFW_POSITION_X                   = 0x2000E,
+    GLFW_POSITION_Y                   = 0x2000F,
+    GLFW_SOFT_FULLSCREEN              = 0x20010,
+    GLFW_UNLIMITED_MOUSE_BUTTONS      = 0x33006,
+    GLFW_IME                          = 0x33007,
+    GLFW_CURSOR_CAPTURED              = 0x34004,
+    GLFW_ANGLE_PLATFORM_TYPE          = 0x50002,
+    GLFW_ANY_POSITION                 = Integer.MIN_VALUE,
+    GLFW_MANAGE_PREEDIT_CANDIDATE     = 0x50004,
+    GLFW_X11_XCB_VULKAN_SURFACE       = 0x52001,
+    GLFW_X11_ONTHESPOT                = 0x52002,
+    GLFW_WAYLAND_LIBDECOR             = 0x53001,
+    GLFW_CONTEXT_DEBUG                = 0x22007,
+    GLFW_SCALE_FRAMEBUFFER            = 0x2200D,
+    GLFW_WIN32_SHOWDEFAULT            = 0x25002,
+    GLFW_WAYLAND_APP_ID               = 0x26001,
+    GLFW_ANGLE_PLATFORM_TYPE_NONE     = 0x37001,
+    GLFW_ANGLE_PLATFORM_TYPE_OPENGL   = 0x37002,
+    GLFW_ANGLE_PLATFORM_TYPE_OPENGLES = 0x37003,
+    GLFW_ANGLE_PLATFORM_TYPE_D3D9     = 0x37004,
+    GLFW_ANGLE_PLATFORM_TYPE_D3D11    = 0x37005,
+    GLFW_ANGLE_PLATFORM_TYPE_VULKAN   = 0x37007,
+    GLFW_ANGLE_PLATFORM_TYPE_METAL    = 0x37008,
+    GLFW_WAYLAND_PREFER_LIBDECOR      = 0x38001,
+    GLFW_WAYLAND_DISABLE_LIBDECOR     = 0x38002;
+
     /** Cursor state. */
     public static final int
     GLFW_CURSOR_NORMAL   = 0x34001,
@@ -1120,7 +1150,30 @@ public class GLFW
     public static void glfwPostEmptyEvent() {}
 
     public static int glfwGetInputMode(@NativeType("GLFWwindow *") long window, int mode) {
-        return internalGetWindow(window).inputModes.get(mode);
+        Integer value = internalGetWindow(window).inputModes.get(mode);
+        return value != null ? value : defaultInputMode(mode);
+    }
+
+    private static final java.util.Set<Integer> mLoggedInputModes = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    // Input modes start unset, so a lookup must never unbox null (Minecraft 26.2 reads GLFW_IME on the first tick)
+    private static int defaultInputMode(int mode) {
+        switch (mode) {
+            case GLFW_CURSOR:
+                return GLFW_CURSOR_NORMAL;
+            case GLFW_STICKY_KEYS:
+            case GLFW_STICKY_MOUSE_BUTTONS:
+            case GLFW_LOCK_KEY_MODS:
+            case GLFW_RAW_MOUSE_MOTION:
+            case GLFW_UNLIMITED_MOUSE_BUTTONS:
+            case GLFW_IME:
+                return GLFW_FALSE;
+            default:
+                if (mLoggedInputModes.add(mode)) {
+                    System.out.println("[GLFWStub] glfwGetInputMode: unknown input mode 0x" + Integer.toHexString(mode) + ", returning 0");
+                }
+                return 0;
+        }
     }
 
     public static void glfwSetInputMode(@NativeType("GLFWwindow *") long window, int mode, int value) {
@@ -1133,6 +1186,9 @@ public class GLFW
             }
         }
 
+        if ((mode < GLFW_CURSOR || mode > GLFW_IME) && mLoggedInputModes.add(mode)) {
+            System.out.println("[GLFWStub] glfwSetInputMode: unknown input mode 0x" + Integer.toHexString(mode) + " = " + value + ", storing it anyway");
+        }
         internalGetWindow(window).inputModes.put(mode, value);
     }
     public static String glfwGetKeyName(int key, int scancode) {

@@ -1,0 +1,69 @@
+diff --git a/src/main/cpp/gl/glsl/glsl_for_es.cpp b/src/main/cpp/gl/glsl/glsl_for_es.cpp
+index 7645eca..5c1a85c 100644
+--- a/src/main/cpp/gl/glsl/glsl_for_es.cpp
++++ b/src/main/cpp/gl/glsl/glsl_for_es.cpp
+@@ -356,7 +356,12 @@ std::string GLSLtoGLSLES(const char* glsl_code, GLenum glsl_type, uint essl_vers
+         Cache::get_instance().put(sha256_string.c_str(), converted.c_str());
+     }
+ 
+-    return (return_code >= 0) ? converted : glsl_code;
++    // Amadora: desktop GLSL handed to a GLES driver can only fail ("invalid version directive"), so report the failure instead
++    if (return_code < 0) {
++        LOG_W_FORCE("[MGShaderDump] GLSL -> ESSL %u translation failed (code %d)\n", essl_version, return_code)
++        return "";
++    }
++    return converted;
+ }
+ 
+ std::string replace_line_starting_with(const std::string& glslCode, const std::string& starting, const std::string& substitution = "") {
+@@ -811,7 +816,7 @@ std::vector<unsigned int> glsl_to_spirv(GLenum shader_type, int glsl_version, co
+     TBuiltInResource TBuiltInResource_resources = InitResources();
+ 
+     if (!shader.parse(&TBuiltInResource_resources, glsl_version, true, EShMsgDefault)) {
+-        LOG_D("GLSL Compiling ERROR: \n%s",shader.getInfoLog())
++        LOG_W_FORCE("[MGShaderDump] glslang failed to parse GLSL %d:\n%s\n", glsl_version, shader.getInfoLog())
+         errc = -1;
+         return {};
+     }
+@@ -821,7 +826,7 @@ std::vector<unsigned int> glsl_to_spirv(GLenum shader_type, int glsl_version, co
+     program.addShader(&shader);
+ 
+     if (!program.link(EShMsgDefault)) {
+-        LOG_D("Shader Linking ERROR: %s", program.getInfoLog())
++        LOG_W_FORCE("[MGShaderDump] glslang failed to link: %s\n", program.getInfoLog())
+         errc = -1;
+         return {};
+     }
+@@ -860,7 +865,8 @@ std::string spirv_to_essl(std::vector<unsigned int> spirv, uint essl_version, in
+     spvc_compiler_compile(compiler_glsl, &result);
+ 
+     if (!result) {
+-        LOG_E("Error: unexpected error in spirv-cross.")
++        LOG_W_FORCE("[MGShaderDump] spirv-cross failed to emit ESSL %u: %s\n", essl_version, spvc_context_get_last_error_string(context))
++        spvc_context_destroy(context);
+         errc = -1;
+         return "";
+     }
+diff --git a/src/main/cpp/gl/shader.cpp b/src/main/cpp/gl/shader.cpp
+index e80fdf7..fd040ae 100644
+--- a/src/main/cpp/gl/shader.cpp
++++ b/src/main/cpp/gl/shader.cpp
+@@ -91,8 +91,17 @@ void glShaderSource(GLuint shader, GLsizei count, const GLchar *const* string, c
+ 			LOG_D("[INFO] [Shader] Atomic counter emulated in shader %d", shader)
+         }
+ 
++        // Amadora: dump the first few translations, and every failure, so the log shows what the #version line becomes
++        static int dumped = 0;
++        if (essl_src.empty() || dumped < 4) {
++            dumped++;
++            std::string versionLine = essl_src.empty() ? "(translation failed)" : essl_src.substr(0, essl_src.find('\n'));
++            LOG_W_FORCE("[MGShaderDump] shader %u (%s), GLSL %d -> ES %u, #version line: %s\n--- source ---\n%s\n--- translated ---\n%s\n--- end ---\n",
++                shader, shaderType == GL_VERTEX_SHADER ? "vertex" : shaderType == GL_FRAGMENT_SHADER ? "fragment" : "other",
++                glsl_version, hardware->es_version, versionLine.c_str(), glsl_src.c_str(), essl_src.c_str())
++        }
+         if (essl_src.empty()) {
+-            LOG_E("Failed to convert shader %d.", shader)
++            LOG_W_FORCE("[MGShaderDump] Failed to convert shader %u\n", shader)
+             return;
+         }
+         LOG_D("\n[INFO] [Shader] Converted Shader source: \n%s", essl_src.c_str())

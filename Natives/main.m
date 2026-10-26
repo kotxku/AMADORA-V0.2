@@ -247,6 +247,44 @@ void init_setupResolvConf() {
     }
 }
 
+// LiveContainer gives every install of an app its own Documents/Data/Application/<UUID>, so a reinstall starts with no
+// accounts, profiles or instances. Keep AMADORA's data in LiveContainer's own Documents/AMADORA instead, where every
+// install finds it. The first time, move in the newest earlier install's data. Returns nil outside LiveContainer.
+static NSString *dataPathLog; // logged once stdio goes to latestlog
+static NSString *init_stableLiveContainerHome(NSString *home) {
+    if (!getenv("LC_HOME_PATH")) return nil; // a normal install: iOS keeps Documents across updates by itself
+    NSRange range = [home rangeOfString:@"/Data/Application/" options:NSBackwardsSearch];
+    if (range.location == NSNotFound) return nil;
+    NSString *appsDir = [home substringToIndex:NSMaxRange(range)];
+    NSString *stable = [[home substringToIndex:range.location] stringByAppendingPathComponent:@"AMADORA"];
+    if ([fm fileExistsAtPath:stable]) {
+        dataPathLog = [NSString stringWithFormat:@"[DataPath] Using %@", stable];
+        return stable;
+    }
+
+    NSString *newest;
+    NSDate *newestDate;
+    for (NSString *uuid in [fm contentsOfDirectoryAtPath:appsDir error:nil]) {
+        NSString *docs = [NSString stringWithFormat:@"%@%@/Documents", appsDir, uuid];
+        NSDate *date = [fm attributesOfItemAtPath:[docs stringByAppendingPathComponent:@"launcher_preferences_v2.plist"] error:nil].fileModificationDate;
+        if (!date || ![fm fileExistsAtPath:[docs stringByAppendingPathComponent:@"Library/Application Support/minecraft"]]) continue;
+        if (!newestDate || [date compare:newestDate] == NSOrderedDescending) {
+            newest = docs;
+            newestDate = date;
+        }
+    }
+    NSError *error;
+    if (newest ? ![fm moveItemAtPath:newest toPath:stable error:&error]
+               : ![fm createDirectoryAtPath:stable withIntermediateDirectories:YES attributes:nil error:&error]) {
+        dataPathLog = [NSString stringWithFormat:@"[DataPath] Couldn't set up %@ (%@), staying in %@", stable, error.localizedDescription, home];
+        return nil;
+    }
+    // The moved folder may have been this install's own Documents
+    [fm createDirectoryAtPath:[home stringByAppendingPathComponent:@"Documents"] withIntermediateDirectories:YES attributes:nil error:nil];
+    dataPathLog = [NSString stringWithFormat:@"[DataPath] Using %@ (%@)", stable, newest ? [NSString stringWithFormat:@"moved in data from %@", newest] : @"new"];
+    return stable;
+}
+
 void init_setupHomeDirectory() {
     setenv("HOME", [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask]
         .lastObject.path.stringByDeletingLastPathComponent.UTF8String, 1);
@@ -256,6 +294,7 @@ void init_setupHomeDirectory() {
     BOOL isNotSandboxed = [@(getenv("HOME")).lastPathComponent isEqualToString:NSUserName()];
     homeDir = [NSString stringWithFormat:@"%s/Documents%@", getenv("HOME"),
         isNotSandboxed ? @"/AngelAuraAmethyst":@""];
+    homeDir = init_stableLiveContainerHome(@(getenv("HOME"))) ?: homeDir;
 
     if (![fm fileExistsAtPath:homeDir] ) {
         [fm createDirectoryAtPath:homeDir withIntermediateDirectories:NO attributes:nil error:&homeError];
@@ -296,6 +335,7 @@ int main(int argc, char *argv[]) {
     isJailbroken = init_checkForJailbreak();
     init_setupHomeDirectory();
     init_redirectStdio();
+    if (dataPathLog) NSLog(@"%@", dataPathLog);
     init_logDeviceAndVer(argv[0]);
 
     loadPreferences(NO);

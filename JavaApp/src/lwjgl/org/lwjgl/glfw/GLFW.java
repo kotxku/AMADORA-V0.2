@@ -1088,7 +1088,28 @@ public class GLFW
     public static void glfwPostEmptyEvent() {}
 
     public static int glfwGetInputMode(@NativeType("GLFWwindow *") long window, int mode) {
-        return internalGetWindow(window).inputModes.get(mode);
+        Integer value = internalGetWindow(window).inputModes.get(mode);
+        return value != null ? value : defaultInputMode(mode);
+    }
+
+    private static final java.util.Set<Integer> mLoggedInputModes = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    // Input modes start unset, so a lookup must never unbox null (Minecraft 26.2 reads GLFW_IME on the first tick)
+    private static int defaultInputMode(int mode) {
+        switch (mode) {
+            case GLFW_CURSOR:
+                return GLFW_CURSOR_NORMAL;
+            case GLFW_STICKY_KEYS:
+            case GLFW_STICKY_MOUSE_BUTTONS:
+            case GLFW_LOCK_KEY_MODS:
+            case GLFW_RAW_MOUSE_MOTION:
+                return GLFW_FALSE;
+            default:
+                if (mLoggedInputModes.add(mode)) {
+                    System.out.println("[GLFWStub] glfwGetInputMode: unknown input mode 0x" + Integer.toHexString(mode) + ", returning 0");
+                }
+                return 0;
+        }
     }
 
     public static void glfwSetInputMode(@NativeType("GLFWwindow *") long window, int mode, int value) {
@@ -1101,6 +1122,9 @@ public class GLFW
             }
         }
 
+        if ((mode < GLFW_CURSOR || mode > GLFW_RAW_MOUSE_MOTION) && mLoggedInputModes.add(mode)) {
+            System.out.println("[GLFWStub] glfwSetInputMode: unknown input mode 0x" + Integer.toHexString(mode) + " = " + value + ", storing it anyway");
+        }
         internalGetWindow(window).inputModes.put(mode, value);
     }
     public static String glfwGetKeyName(int key, int scancode) {

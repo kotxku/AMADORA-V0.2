@@ -18,3 +18,7 @@ typedef jint JLI_Launch_func(int argc, const char ** argv, /* main argc, argc */
 JLI_Launch_func *pJLI_Launch;
 
 int launchJVM(NSString *username, id launchTarget, int width, int height, int minVersion);
+
+// The renderer this launch uses. "auto" resolves to one that meets the version's minimum OpenGL; returns nil (with
+// *error set to a message for the player) when no bundled renderer can. Also sets RENDERER. Logs [RendererSelect].
+NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error);
