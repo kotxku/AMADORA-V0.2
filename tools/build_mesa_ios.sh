@@ -16,6 +16,15 @@ grep -q '@loader_path/libMoltenVK.dylib' "$SRC/src/gallium/drivers/zink/zink_scr
 sed -i '' 's/dep_unwind, driver_swrast, idep_mesautil,/dep_unwind, driver_swrast, driver_zink, idep_mesautil,/' \
     "$SRC/src/gallium/targets/osmesa/meson.build"
 grep -q 'driver_zink' "$SRC/src/gallium/targets/osmesa/meson.build" || { echo "OSMesa not patched to link Zink"; exit 1; }
+# The inline helper OSMesa uses calls zink_create_screen but, unlike sw_helper.h, never includes its declaration
+HELPER="$SRC/src/gallium/auxiliary/target-helpers/inline_sw_helper.h"
+# perl without /g changes only the first #ifdef GALLIUM_SOFTPIPE, the one among the includes
+grep -q 'zink/zink_public.h' "$HELPER" || perl -0pi -e 's|#ifdef GALLIUM_SOFTPIPE|#ifdef GALLIUM_ZINK
+#include "zink/zink_public.h"
+#endif
+
+#ifdef GALLIUM_SOFTPIPE|' "$HELPER"
+grep -q 'zink/zink_public.h' "$HELPER" || { echo "inline_sw_helper.h not patched"; exit 1; }
 
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CC="$(xcrun --sdk iphoneos -f clang)"
