@@ -137,6 +137,12 @@ public class NativeRedirect implements Function<String, String> {
             if (CRASH_CLASSES.contains(className)) { // none of these load natives
                 return new Patcher(original.clone()).guardCrashReports(className, className.equals("net/minecraft/CrashReport"));
             }
+            // It loads the macOS-only libjcocoa through java-objc-bridge, which iOS rejects as unsigned; there is no menu bar anyway
+            if (className.equals("com/mojang/blaze3d/platform/MacosUtil")) {
+                byte[] patched = new Patcher(original.clone()).stubVoid("disableCloseWindowMenuItem");
+                if (patched != null) System.out.println(TAG + "disabled MacosUtil.disableCloseWindowMenuItem (needs libjcocoa)");
+                return patched;
+            }
             byte[] patched = new Patcher(original.clone()).patch();
             if (patched != null) System.out.println(TAG + "hooked native loading in " + className);
             return patched;
@@ -276,6 +282,34 @@ public class NativeRedirect implements Function<String, String> {
             System.out.println(CrashGuard.TAG + "guarding " + className + ": " + wrapped + " mod hook(s) wrapped"
                     + (logged ? ", original exception logged first" : ""));
             return assemble(methodsCount, methodsEnd, methods, u2(methodsCount) + added);
+        }
+
+        /** Replaces the body of the named void method with a bare return; null when the class has no such method. */
+        byte[] stubVoid(String methodName) throws IOException {
+            int methodsCount = skipMembers(cpEnd + 8 + 2 * u2(cpEnd + 6));
+            int methodsEnd = skipMembers(methodsCount);
+            ByteArrayOutputStream methods = new ByteArrayOutputStream();
+            DataOutputStream m = new DataOutputStream(methods);
+            int stubbed = 0;
+            for (int i = 0, o = methodsCount + 2; i < u2(methodsCount); i++) {
+                boolean stub = utf8(u2(o + 2)).equals(methodName) && utf8(u2(o + 4)).endsWith(")V");
+                int attrs = u2(o + 6);
+                methods.write(b, o, 8);
+                o += 8;
+                for (int a = 0; a < attrs; a++) {
+                    int len = 6 + u4(o + 2);
+                    if (stub && utf8(u2(o)).equals("Code")) {
+                        // max_stack 0, max_locals kept, code "return", no exception table, no attributes
+                        m.writeShort(u2(o)); m.writeInt(13); m.writeShort(0); m.writeShort(u2(o + 8));
+                        m.writeInt(1); m.write(0xb1); m.writeShort(0); m.writeShort(0);
+                        stubbed++;
+                    } else {
+                        methods.write(b, o, len);
+                    }
+                    o += len;
+                }
+            }
+            return stubbed == 0 ? null : assemble(methodsCount, methodsEnd, methods, u2(methodsCount));
         }
 
         // Code attribute layout at o: name u2, length u4, max_stack u2, max_locals u2, code_length u4, code, exceptions, attributes
