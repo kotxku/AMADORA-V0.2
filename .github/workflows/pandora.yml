@@ -40,6 +40,29 @@ jobs:
           git clone --depth 1 -b 3.53.2.1 https://github.com/xerial/sqlite-jdbc "$RUNNER_TEMP/sqlite-jdbc"
           bash tools/build_sqlite_jdbc_ios.sh "$RUNNER_TEMP/sqlite-jdbc" Natives/build/libsqlitejdbc.dylib
 
+      # Current OSMesa + Zink, replacing the bundled Mesa 21.0 whose Zink cannot run Minecraft 26.x's shaders
+      - name: Cache Mesa for iOS
+        id: mesa-cache
+        uses: actions/cache@v4
+        with:
+          path: Natives/build/mesa
+          key: mesa-25.0.7-mvk-1.2.9-${{ hashFiles('tools/build_mesa_ios.sh') }}
+
+      - name: Build Mesa for iOS
+        if: steps.mesa-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install bison flex
+          export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
+          python3 -m venv "$RUNNER_TEMP/mesa-venv"
+          . "$RUNNER_TEMP/mesa-venv/bin/activate"
+          pip install meson ninja mako pyyaml packaging
+          git clone --depth 1 -b mesa-25.0.7 https://gitlab.freedesktop.org/mesa/mesa.git "$RUNNER_TEMP/mesa"
+          git clone --depth 1 -b v1.2.9 https://github.com/KhronosGroup/MoltenVK "$RUNNER_TEMP/MoltenVK"
+          bash tools/build_mesa_ios.sh "$RUNNER_TEMP/mesa" "$RUNNER_TEMP/MoltenVK" Natives/build/mesa
+
+      - name: Use Mesa for iOS
+        run: cp Natives/build/mesa/*.dylib Natives/build/
+
       - name: Build IPA
         run: |
           export PATH="$(brew --prefix)/bin:$PATH"
