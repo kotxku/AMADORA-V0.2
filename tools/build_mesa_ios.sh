@@ -42,9 +42,10 @@ endian = 'little'
 EOF
 
 rm -rf "$BUILD"
+# OSMesa refuses to build without a software rasterizer; the launcher picks Zink with GALLIUM_DRIVER=zink
 meson setup "$BUILD" "$SRC" --cross-file "$SRC/ios-cross.txt" \
     -Dbuildtype=release -Db_ndebug=true \
-    -Dgallium-drivers=zink -Dvulkan-drivers= -Dplatforms= \
+    -Dgallium-drivers=softpipe,zink -Dvulkan-drivers= -Dplatforms= \
     -Dosmesa=true -Dopengl=true -Dshared-glapi=enabled \
     -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dgles1=disabled -Dgles2=disabled -Dglvnd=disabled \
     -Dllvm=disabled -Dvalgrind=disabled -Dlibunwind=disabled -Dlmsensors=disabled -Dzstd=disabled \
