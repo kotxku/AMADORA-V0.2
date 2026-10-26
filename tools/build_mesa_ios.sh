@@ -12,8 +12,8 @@ BUILD="$SRC/build-ios"
 sed -i '' 's|#define VK_LIBNAME "libvulkan.1.dylib"|#define VK_LIBNAME "@loader_path/libMoltenVK.dylib"|' \
     "$SRC/src/gallium/drivers/zink/zink_screen.c"
 grep -q '@loader_path/libMoltenVK.dylib' "$SRC/src/gallium/drivers/zink/zink_screen.c" || { echo "VK_LIBNAME not patched"; exit 1; }
-# OSMesa only links the software rasterizers; sw_screen_create_named already handles GALLIUM_DRIVER=zink once Zink is linked in
-sed -i '' 's/dep_unwind, driver_swrast, idep_mesautil,/dep_unwind, driver_swrast, driver_zink, idep_mesautil,/' \
+# OSMesa only links the software rasterizers (and not the xmlconfig Zink reads drirc with); sw_screen_create_named already handles GALLIUM_DRIVER=zink once Zink is linked in
+sed -i '' 's/dep_unwind, driver_swrast, idep_mesautil,/dep_unwind, driver_swrast, driver_zink, idep_xmlconfig, idep_mesautil,/' \
     "$SRC/src/gallium/targets/osmesa/meson.build"
 grep -q 'driver_zink' "$SRC/src/gallium/targets/osmesa/meson.build" || { echo "OSMesa not patched to link Zink"; exit 1; }
 # The inline helper OSMesa uses calls zink_create_screen but, unlike sw_helper.h, never includes its declaration
