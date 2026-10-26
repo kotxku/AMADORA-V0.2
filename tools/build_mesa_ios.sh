@@ -75,16 +75,20 @@ cp "$(find "$BUILD" -name 'libOSMesa.8.dylib' -type f | head -1)" "$OUT/libOSMes
 # Same install name as the Mesa 21.0 build, so dlopen("@rpath/libOSMesa.8.dylib") resolves in Frameworks.
 # Mesa 25.0 links glapi into libOSMesa; the old libglapi.0.dylib stays in Frameworks for the other renderers.
 install_name_tool -id @rpath/libOSMesa.8.dylib "$OUT/libOSMesa.8.dylib"
-if otool -L "$OUT/libOSMesa.8.dylib" | grep -q libglapi; then echo "libOSMesa still links a separate libglapi"; exit 1; fi
+# Each tool's output is captured before grep -q, which would otherwise SIGPIPE it and fail the pipefail pipeline
+LINKS="$(otool -L "$OUT/libOSMesa.8.dylib")"
+if grep -q libglapi <<< "$LINKS"; then echo "libOSMesa still links a separate libglapi"; exit 1; fi
 
 # Fail the build rather than ship a macOS binary, one without Zink, or one missing the entry points osm_bridge uses
 for lib in "$OUT"/*.dylib; do
-    otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -q "platform 2" || { echo "$lib is not an iOS binary"; exit 1; }
+    BUILD_VERSION="$(otool -l "$lib" | grep -A4 LC_BUILD_VERSION)"
+    [[ "$BUILD_VERSION" == *"platform 2"* ]] || { echo "$lib is not an iOS binary"; exit 1; }
 done
 # osm_bridge dlsyms these through the libOSMesa handle
+SYMS="$(nm -gU "$OUT"/*.dylib)"
 for sym in OSMesaCreateContext OSMesaMakeCurrent OSMesaGetCurrentContext OSMesaDestroyContext OSMesaPixelStore OSMesaGetProcAddress glGetString glFinish; do
-    nm -gU "$OUT"/*.dylib | grep -q " _$sym\$" || { echo "libOSMesa does not export $sym"; exit 1; }
+    grep -q " _$sym\$" <<< "$SYMS" || { echo "libOSMesa does not export $sym"; exit 1; }
 done
-strings "$OUT/libOSMesa.8.dylib" | grep -q '@loader_path/libMoltenVK.dylib' || { echo "Zink not built in"; exit 1; }
+grep -q '@loader_path/libMoltenVK.dylib' <<< "$(strings "$OUT/libOSMesa.8.dylib")" || { echo "Zink not built in"; exit 1; }
 otool -L "$OUT/libOSMesa.8.dylib"
 echo "Built $OUT/libOSMesa.8.dylib"
