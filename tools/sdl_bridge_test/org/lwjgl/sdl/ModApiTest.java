@@ -49,6 +49,23 @@ public class ModApiTest {
         ShortBuffer mods = ShortBuffer.allocate(1);
         check(SDLKeyboard.SDL_GetScancodeFromKey('w', mods) == 26 && SDLKeyboard.SDL_GetScancodeFromKey(27, null) == 41, "scancode from key (Essential)");
 
+        // Typed text: the on-screen field sends char-mods only, a hardware key sends char-mods then char
+        AmadoraSDL.flush(0, Integer.MAX_VALUE);
+        AmadoraSDL.textInput = true;
+        AmadoraSDL.onCharMods('/');
+        AmadoraSDL.onCharMods('t');
+        AmadoraSDL.onCharMods('p');
+        AmadoraSDL.onChar('p');
+        AmadoraSDL.onChar('x');
+        StringBuilder typed = new StringBuilder();
+        SDL_Event ev = SDL_Event.calloc();
+        while (SDLEvents.SDL_PollEvent(ev)) if (ev.type() == SDLEvents.SDL_EVENT_TEXT_INPUT) typed.append(ev.text().textString());
+        ev.free();
+        check("/tpx".equals(typed.toString()), "typed text reaches the game once per character (" + typed + ")");
+        AmadoraSDL.textInput = false;
+        AmadoraSDL.onCharMods('q');
+        check(!SDLEvents.SDL_PollEvent(null), "no text events while text input is off");
+
         // Hints and subsystems
         check(SDLHints.SDL_SetHint("SDL_MOUSE_RELATIVE_MODE_CENTER", "0") && "0".equals(SDLHints.SDL_GetHint("SDL_MOUSE_RELATIVE_MODE_CENTER")), "hint round trip");
         check(!SDLHints.SDL_GetHintBoolean("SDL_MOUSE_RELATIVE_MODE_CENTER", true) && SDLHints.SDL_ResetHint("SDL_MOUSE_RELATIVE_MODE_CENTER")

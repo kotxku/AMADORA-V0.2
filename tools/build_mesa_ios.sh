@@ -26,6 +26,13 @@ grep -q 'zink/zink_public.h' "$HELPER" || perl -0pi -e 's|#ifdef GALLIUM_SOFTPIP
 #ifdef GALLIUM_SOFTPIPE|' "$HELPER"
 grep -q 'zink/zink_public.h' "$HELPER" || { echo "inline_sw_helper.h not patched"; exit 1; }
 
+# Zink names SPIR-V variables after their GLSL names; MoltenVK 1.2.9's SPIRV-Cross keeps a texture named "sampler",
+# which clashes with Metal's sampler type and fails the shader. OpName is debug-only, so emit none.
+NAMES="$SRC/src/gallium/drivers/zink/nir_to_spirv/spirv_builder.c"
+grep -q 'AMADORA: no debug names' "$NAMES" || perl -0pi -e 's|(spirv_builder_emit_name\(struct spirv_builder \*b, SpvId target,\s*const char \*name\)\s*\{)|$1
+   return; /* AMADORA: no debug names */|' "$NAMES"
+grep -q 'AMADORA: no debug names' "$NAMES" || { echo "spirv_builder_emit_name not patched"; exit 1; }
+
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CC="$(xcrun --sdk iphoneos -f clang)"
 CXX="$(xcrun --sdk iphoneos -f clang++)"

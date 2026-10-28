@@ -52,6 +52,8 @@ public final class AmadoraSDL {
     static short modState;
     static float mouseX, mouseY;
     static int buttonMask;
+    // Hardware keys arrive as char-mods then char; the on-screen field in stack-queue mode sends char-mods only
+    private static int modsCodepoint = -1;
 
     /** A pending SDL event; written into the caller's SDL_Event by SDL_PollEvent. */
     static final class Event {
@@ -195,10 +197,8 @@ public final class AmadoraSDL {
             e.mod = mod;
             e.flag = action == GLFW.GLFW_REPEAT;
         });
-        GLFW.glfwSetCharCallback(window, (win, codepoint) -> {
-            if (!textInput) return;
-            push(EVENT_TEXT_INPUT, 0, 0).text = new String(Character.toChars(codepoint));
-        });
+        GLFW.glfwSetCharModsCallback(window, (win, codepoint, mods) -> onCharMods(codepoint));
+        GLFW.glfwSetCharCallback(window, (win, codepoint) -> onChar(codepoint));
         GLFW.glfwSetCursorPosCallback(window, (win, x, y) -> {
             Event e = push(EVENT_MOUSE_MOTION, 0, 0);
             e.f1 = (float) x;
@@ -238,7 +238,23 @@ public final class AmadoraSDL {
         GLFW.glfwSetWindowCloseCallback(window, win -> push(EVENT_WINDOW_CLOSE_REQUESTED, 0, 0));
     }
 
+    static void onCharMods(int codepoint) {
+        modsCodepoint = codepoint;
+        pushText(codepoint);
+    }
+
+    static void onChar(int codepoint) {
+        boolean pairedWithMods = codepoint == modsCodepoint;
+        modsCodepoint = -1;
+        if (!pairedWithMods) pushText(codepoint);
+    }
+
+    private static void pushText(int codepoint) {
+        if (textInput) push(EVENT_TEXT_INPUT, 0, 0).text = new String(Character.toChars(codepoint));
+    }
+
     static void pump() {
+        modsCodepoint = -1;
         if (context != 0) GLFW.glfwPollEvents();
     }
 
