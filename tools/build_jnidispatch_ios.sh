@@ -27,6 +27,8 @@ echo "JNA native version $VERSION, checksum $CHECKSUM"
 
 # libffi's aarch64 CFI directives trip newer Apple assemblers ("invalid CFI advance_loc"); they only add unwind info
 export gcc_cv_as_cfi_pseudo_op=no
+# On an Intel host libffi configures as a cross build and its C++ preprocessor check falls back to /lib/cpp
+export CXXCPP="$WRAP -E -x c++"
 make -C "$JNA/native" OS=darwin ARCH=aarch64 JAVA_HOME="$JAVA_HOME" JAVAH="$JNA/build/headers" \
     CC="$WRAP" SDKROOT="$SDK" BUILD="$JNA/build/ios" HOST_CONFIG=--host=aarch64-apple-ios \
     JNA_JNI_VERSION="$VERSION" CHECKSUM="$CHECKSUM" MAKEINFO=true "$JNA/build/ios/libjnidispatch.jnilib"
