@@ -3,11 +3,15 @@ name: Build AMADORA IPA
 on:
   push:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner label (macos-26-intel when the arm64 runners have no capacity)
+        default: macos-26
 
 jobs:
   build:
     # Upstream builds on a private self-hosted Mac; this uses GitHub's hosted macOS runner instead
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     steps:
       - uses: actions/checkout@v4
         with:
