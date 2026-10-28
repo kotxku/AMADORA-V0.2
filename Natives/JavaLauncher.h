@@ -23,5 +23,5 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 // *error set to a message for the player) when no bundled renderer can. Also sets RENDERER. Logs [RendererSelect].
 NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error);
 
-// nil when a bundled LWJGL can run this version, otherwise a message for the player. Logs [LWJGLSelect].
-NSString *checkLWJGLSupport(NSDictionary *metadata);
+// Logs [LWJGLSelect]: the LWJGL the version lists and the bundled one (and bridge) it runs on.
+void logLWJGLSelection(NSDictionary *metadata);

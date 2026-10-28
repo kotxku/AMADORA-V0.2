@@ -201,7 +201,10 @@ static NSDictionary<NSString *, NSString *> *unsupportedMods(void) {
         @"c2me": @"C2ME: its native code has no iOS build and crashes Minecraft",
         @"physicsmod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version",
         @"physics-mod": @"Physics Mod: needs NVIDIA PhysX, which has no iOS version",
-        @"zfastnoise-ocl": @"Fast Noise OpenCL: needs OpenCL, which iOS doesn't have"
+        @"zfastnoise-ocl": @"Fast Noise OpenCL: needs OpenCL, which iOS doesn't have",
+        // Only the SDL3 builds (4.6.x, Minecraft 26.3): they call SDL's raw nSDL_* entry points, which the bridge
+        // doesn't emulate. The GLFW builds for 26.2 and older keep working.
+        @"ixeris-4.6": @"Ixeris: moves SDL window calls to another thread; on iOS those go through AMADORA's SDL bridge, which it can't drive"
     };
 }
 

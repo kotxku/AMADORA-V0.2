@@ -36,6 +36,7 @@ public final class AmadoraSDL {
     static final class Window {
         final int id;
         long flags;
+        int properties; // SDL_GetWindowProperties, created on first use
         Window(int id, long flags) { this.id = id; this.flags = flags; }
     }
 
@@ -67,6 +68,22 @@ public final class AmadoraSDL {
     static void setError(String message) {
         error = message;
     }
+
+    // Parts of SDL3 the bridge doesn't provide; the generated defaults land here
+    private static final java.util.Set<String> reported = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    static void unsupported(String function) {
+        setError(function + " isn't available on iOS");
+        if (reported.add(function)) {
+            System.out.println("[SDLBridge] " + function + " isn't available on iOS; returning a default");
+        }
+    }
+
+    // State the extra window, mouse and init queries report back
+    static int swapInterval, initFlags;
+    static boolean relativeMouse, cursorVisible = true;
+    static long cursor = 1; // SDL_GetDefaultCursor
+    static final Map<String, String> hints = new java.util.concurrent.ConcurrentHashMap<>();
 
     static void init() {
         if (!initialized) {
@@ -101,6 +118,13 @@ public final class AmadoraSDL {
     static int eventWindowId() {
         Window w = windows.get(eventWindow());
         return w == null ? 0 : w.id;
+    }
+
+    static long windowForId(int id) {
+        for (Map.Entry<Long, Window> e : windows.entrySet()) {
+            if (e.getValue().id == id) return e.getKey();
+        }
+        return 0;
     }
 
     static long createContext() {

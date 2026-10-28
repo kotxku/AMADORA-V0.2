@@ -117,17 +117,14 @@ static BOOL requiresLWJGL34(id launchTarget) {
     return version && [version compare:@"3.4" options:NSNumericSearch] != NSOrderedAscending;
 }
 
-NSString *checkLWJGLSupport(NSDictionary *metadata) {
+void logLWJGLSelection(NSDictionary *metadata) {
     NSString *listed = listedLWJGLVersion(metadata, @"lwjgl");
-    // Minecraft 26.3+ swaps GLFW for SDL3 (lwjgl-sdl); our touch, keyboard and surface bridge only implements GLFW
+    // Minecraft 26.3+ swaps GLFW for SDL3 (lwjgl-sdl). There's no libSDL3 on iOS: lwjgl341's org.lwjgl.sdl classes
+    // are a Java bridge onto the same GLFW layer that drives touch, keyboard and the surface
     NSString *sdl = listedLWJGLVersion(metadata, @"lwjgl-sdl");
-    if (sdl) {
-        NSLog(@"[LWJGLSelect] Minecraft lists LWJGL %@ with SDL3 (lwjgl-sdl %@); no bundled LWJGL has the SDL bridge, refusing to launch", listed, sdl);
-        return [NSString stringWithFormat:@"Minecraft 26.3 and newer use LWJGL %@ with SDL3 for the window, touch and keyboard. AMADORA's input bridge only supports GLFW so far (LWJGL 3.4.1, Minecraft 26.2 and older). Pick a 26.2 or older version for now.", listed];
-    }
-    NSLog(@"[LWJGLSelect] Minecraft lists LWJGL %@; using bundled %@", listed ?: @"2 (none listed)",
-        requiresLWJGL34(metadata) ? @"3.4.1 (lwjgl341, GLFW bridge)" : @"3.3.3 (libs)");
-    return nil;
+    NSLog(@"[LWJGLSelect] Minecraft lists LWJGL %@%@; using bundled %@", listed ?: @"2 (none listed)",
+        sdl ? [NSString stringWithFormat:@" with SDL3 (lwjgl-sdl %@)", sdl] : @"",
+        !requiresLWJGL34(metadata) ? @"3.3.3 (libs)" : sdl ? @"3.4.1 (lwjgl341) with the AMADORA SDL3 bridge" : @"3.4.1 (lwjgl341, GLFW bridge)");
 }
 
 NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error) {

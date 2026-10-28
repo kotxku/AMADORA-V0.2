@@ -413,12 +413,7 @@
             }
             void (^next)(void) = ^{
                 if (!metadata) return;
-                NSString *lwjglError = checkLWJGLSupport(metadata);
-                if (lwjglError) {
-                    self.progressText.text = @"MC 26.3+ not supported yet";
-                    showDialog(@"MC 26.3+ not supported yet", lwjglError);
-                    return;
-                }
+                logLWJGLSelection(metadata);
                 // A download that failed quietly (e.g. offline) must not reach the game as a NoClassDefFoundError
                 NSArray *missing = [MinecraftResourceUtils missingLibraries:metadata];
                 if (missing.count > 0) {
