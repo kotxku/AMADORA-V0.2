@@ -22,3 +22,6 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
 // The renderer this launch uses. "auto" resolves to one that meets the version's minimum OpenGL; returns nil (with
 // *error set to a message for the player) when no bundled renderer can. Also sets RENDERER. Logs [RendererSelect].
 NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error);
+
+// nil when a bundled LWJGL can run this version, otherwise a message for the player. Logs [LWJGLSelect].
+NSString *checkLWJGLSupport(NSDictionary *metadata);

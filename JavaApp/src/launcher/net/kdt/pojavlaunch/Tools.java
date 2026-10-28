@@ -216,7 +216,7 @@ public final class Tools {
 
         for (String perJar : classpath) {
             if (!new File(perJar).exists()) {
-                System.out.println("Ignored non-exists file: " + perJar);
+                System.out.println("[LibCheck] Missing library, left off the classpath: " + perJar);
                 continue;
             }
             libStr.append(perJar + ":");
@@ -252,11 +252,26 @@ public final class Tools {
         }
     }
 
+    // text2speech 1.17+ catches every error in Narrator.getNarrator() and falls back to
+    // Narrator.EMPTY, so the real jar stays on the classpath; it has no natives and its JNA calls just fail on iOS
+    static boolean isSafeText2Speech(String name) {
+        String[] version = name.split(":")[2].split("\\.");
+        try {
+            int major = Integer.parseInt(version[0]);
+            return major > 1 || (version.length > 1 && Integer.parseInt(version[1]) >= 17);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     public static void preProcessLibraries(DependentLibrary[] libraries) {
-        // Ignore some libraries since they are unsupported (jinput, text2speech) or unused (LWJGL)
-        // Support for text2speech is not planned, so skip it for now.
+        // Ignore some libraries since they are unsupported (jinput, old text2speech) or unused (LWJGL)
         for (int i = 0; i < libraries.length; i++) {
             DependentLibrary libItem = libraries[i];
+            if (libItem.name.startsWith("com.mojang:text2speech") && isSafeText2Speech(libItem.name)) {
+                System.out.println("[Narrator] Keeping " + libItem.name + " on the classpath; narration falls back to Narrator.EMPTY on iOS");
+                continue;
+            }
             if (libItem.name.startsWith("com.mojang:text2speech") ||
                 //libItem.name.startsWith("net.java.jinput") ||
                 libItem.name.startsWith("net.java.dev.jna:platform:") ||
@@ -300,7 +315,15 @@ createLibraryInfo(libItem);
 
         preProcessLibraries(info.libraries);
         for (DependentLibrary libItem : info.libraries) {
-            if (libItem._skip) continue;
+            if (libItem._skip) {
+                // Older text2speech crashes on iOS, so the launcher's stub stands in for it
+                if (libItem.name.startsWith("com.mojang:text2speech")) {
+                    String stub = DIR_BUNDLE + "/libs_text2speech/text2speech-stub.jar";
+                    System.out.println("[Narrator] Replacing " + libItem.name + " with the bundled stub");
+                    if (!libDir.contains(stub)) libDir.add(stub);
+                }
+                continue;
+            }
             String fullPath = Tools.DIR_HOME_LIBRARY + "/" + artifactToPath(libItem);
             if (!libDir.contains(fullPath)) {
                 libDir.add(fullPath);

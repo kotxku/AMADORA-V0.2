@@ -413,6 +413,20 @@
             }
             void (^next)(void) = ^{
                 if (!metadata) return;
+                NSString *lwjglError = checkLWJGLSupport(metadata);
+                if (lwjglError) {
+                    self.progressText.text = @"MC 26.3+ not supported yet";
+                    showDialog(@"MC 26.3+ not supported yet", lwjglError);
+                    return;
+                }
+                // A download that failed quietly (e.g. offline) must not reach the game as a NoClassDefFoundError
+                NSArray *missing = [MinecraftResourceUtils missingLibraries:metadata];
+                if (missing.count > 0) {
+                    NSString *summary = [NSString stringWithFormat:@"%lu libraries missing — connect to the internet and retry", (unsigned long)missing.count];
+                    self.progressText.text = summary;
+                    showDialog(@"Libraries missing", [NSString stringWithFormat:@"%@.\n\n%@", summary, [missing componentsJoinedByString:@"\n"]]);
+                    return;
+                }
                 // Before the game view exists: its layer type depends on the renderer
                 NSString *rendererError;
                 if (!resolveLaunchRenderer(metadata, &rendererError)) {

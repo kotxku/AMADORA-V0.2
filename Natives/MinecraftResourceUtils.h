@@ -10,6 +10,8 @@
 
 + (void)processVersion:(NSMutableDictionary *)json inheritsFrom:(NSMutableDictionary *)inheritsFrom;
 + (void)tweakVersionJson:(NSMutableDictionary *)json;
+// Names of the non-skipped libraries (and client jar) of a tweaked version JSON that aren't on disk. Logs [LibCheck].
++ (NSArray<NSString *> *)missingLibraries:(NSDictionary *)json;
 
 + (NSObject *)findVersion:(NSString *)version inList:(NSArray *)list;
 + (NSObject *)findNearestVersion:(NSObject *)version expectedType:(int)type;

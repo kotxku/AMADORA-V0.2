@@ -99,16 +99,35 @@ void init_loadCustomJvmFlags(int* argc, const char** argv) {
     }
 }
 
-// Minecraft 26.1+ is built against LWJGL 3.4, which isn't compatible with the bundled 3.3.3
-static BOOL requiresLWJGL34(id launchTarget) {
-    if (![launchTarget isKindOfClass:NSDictionary.class]) return NO;
+// The version of an org.lwjgl artifact the version JSON lists, or nil (LWJGL 2 versions list none)
+static NSString *listedLWJGLVersion(id launchTarget, NSString *artifact) {
+    if (![launchTarget isKindOfClass:NSDictionary.class]) return nil;
     for (NSDictionary *library in launchTarget[@"libraries"]) {
         NSArray<NSString *> *parts = [library[@"name"] componentsSeparatedByString:@":"];
-        if (parts.count >= 3 && [parts[0] isEqualToString:@"org.lwjgl"] && [parts[1] isEqualToString:@"lwjgl"]) {
-            return [parts[2] compare:@"3.4" options:NSNumericSearch] != NSOrderedAscending;
+        if (parts.count >= 3 && [parts[0] isEqualToString:@"org.lwjgl"] && [parts[1] isEqualToString:artifact]) {
+            return parts[2];
         }
     }
-    return NO;
+    return nil;
+}
+
+// Minecraft 26.1+ is built against LWJGL 3.4, which isn't compatible with the bundled 3.3.3
+static BOOL requiresLWJGL34(id launchTarget) {
+    NSString *version = listedLWJGLVersion(launchTarget, @"lwjgl");
+    return version && [version compare:@"3.4" options:NSNumericSearch] != NSOrderedAscending;
+}
+
+NSString *checkLWJGLSupport(NSDictionary *metadata) {
+    NSString *listed = listedLWJGLVersion(metadata, @"lwjgl");
+    // Minecraft 26.3+ swaps GLFW for SDL3 (lwjgl-sdl); our touch, keyboard and surface bridge only implements GLFW
+    NSString *sdl = listedLWJGLVersion(metadata, @"lwjgl-sdl");
+    if (sdl) {
+        NSLog(@"[LWJGLSelect] Minecraft lists LWJGL %@ with SDL3 (lwjgl-sdl %@); no bundled LWJGL has the SDL bridge, refusing to launch", listed, sdl);
+        return [NSString stringWithFormat:@"Minecraft 26.3 and newer use LWJGL %@ with SDL3 for the window, touch and keyboard. AMADORA's input bridge only supports GLFW so far (LWJGL 3.4.1, Minecraft 26.2 and older). Pick a 26.2 or older version for now.", listed];
+    }
+    NSLog(@"[LWJGLSelect] Minecraft lists LWJGL %@; using bundled %@", listed ?: @"2 (none listed)",
+        requiresLWJGL34(metadata) ? @"3.4.1 (lwjgl341, GLFW bridge)" : @"3.3.3 (libs)");
+    return nil;
 }
 
 NSString *resolveLaunchRenderer(NSDictionary *metadata, NSString **error) {
@@ -285,7 +304,7 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     margv[++margc] = [NSString stringWithFormat:@"-Xmx%dM", allocmem].UTF8String;
     BOOL useLWJGL34 = requiresLWJGL34(launchTarget);
     NSString *lwjgl34Path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"lwjgl341"];
-    NSLog(@"[JavaLauncher] Using LWJGL %s", useLWJGL34 ? "3.4.1" : "3.3.3");
+    NSLog(@"[JavaLauncher] Using LWJGL %s (version lists %@)", useLWJGL34 ? "3.4.1" : "3.3.3", listedLWJGLVersion(launchTarget, @"lwjgl") ?: @"none");
     if (useLWJGL34) {
         // LWJGL 3.4.1 natives first, everything else (OpenAL, JNA, renderers) still comes from Frameworks
         margv[++margc] = [NSString stringWithFormat:@"-Djava.library.path=%@:%@/Frameworks", lwjgl34Path, NSBundle.mainBundle.bundlePath].UTF8String;

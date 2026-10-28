@@ -67,6 +67,30 @@
     }
 }
 
++ (NSArray<NSString *> *)missingLibraries:(NSDictionary *)json {
+    NSMutableArray *missing = [NSMutableArray new];
+    NSUInteger checked = 0;
+    for (NSDictionary *library in json[@"libraries"]) {
+        if ([library[@"skip"] boolValue]) continue;
+        NSString *name = library[@"name"];
+        NSString *relPath = library[@"downloads"][@"artifact"][@"path"];
+        if (!relPath && [name containsString:@":"]) {
+            // Same layout downloadClientLibraries generates for libraries without a downloads entry
+            NSArray *libParts = [name componentsSeparatedByString:@":"];
+            relPath = [NSString stringWithFormat:@"%1$@/%2$@/%3$@/%2$@-%3$@.jar", [libParts[0] stringByReplacingOccurrencesOfString:@"." withString:@"/"], libParts[1], libParts[2]];
+        }
+        if (!relPath) continue;
+        checked++;
+        NSString *path = [NSString stringWithFormat:@"%s/libraries/%@", getenv("GAME_DIR"), relPath];
+        if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
+            NSLog(@"[LibCheck] Missing %@ (%@)", name, path);
+            [missing addObject:name];
+        }
+    }
+    NSLog(@"[LibCheck] %lu of %lu libraries present for %@", (unsigned long)(checked - missing.count), (unsigned long)checked, json[@"id"]);
+    return missing;
+}
+
 + (void)tweakVersionJson:(NSMutableDictionary *)json {
     // Exclude some libraries
     for (NSMutableDictionary *library in json[@"libraries"]) {

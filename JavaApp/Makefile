@@ -11,7 +11,7 @@ TARGETS := $(TARGETS:$(SOURCEDIR)/%=$(OUTPUTDIR)/%.jar)
 # Add all jars to classpath and allow compiling with private API
 JCFLAGS := -cp "$(subst $() $(),:,$(wildcard $(SOURCEDIR)/*/):$(wildcard libs/*/*.jar))" -XDignore.symbol.file
 
-all: $(TARGETS) $(OUTPUTDIR)/lwjgl341/lwjgl.jar
+all: $(TARGETS) $(OUTPUTDIR)/lwjgl341/lwjgl.jar $(OUTPUTDIR)/text2speech_stub/text2speech-stub.jar
 	
 # Sometimes the CI produces empty class file resulting in broken jar, so we check and abort here
 check_empty_classes:
@@ -57,6 +57,17 @@ $(OUTPUTDIR)/lwjgl341/lwjgl.jar: $(LWJGL341_SOURCES) $(OUTPUTDIR)/launcher.jar
 	@cd $(OUTPUTDIR)/lwjgl341_lib && find ../../lwjgl341 -name 'lwjgl*.jar' -exec $(BOOTJDK)/jar -xf {} \; && rm -rf META-INF
 	@cp -R $(OUTPUTDIR)/lwjgl341_classes/* $(OUTPUTDIR)/lwjgl341_lib/
 	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/lwjgl341_lib .
+
+# Narrator stub for text2speech older than 1.17, whose getNarrator() lets native load errors crash the game. Kept out of
+# libs/ (always on the classpath) so it can't shadow the real jar newer versions use; Tools adds it only when needed
+T2S_STUB_SOURCES := $(shell find src_text2speech_stub -type f -name '*.java')
+$(OUTPUTDIR)/text2speech_stub/text2speech-stub.jar: $(T2S_STUB_SOURCES)
+	@set -e
+	@echo "Creating $@"
+	@rm -rf $(OUTPUTDIR)/text2speech_stub_classes
+	@mkdir -p $(OUTPUTDIR)/text2speech_stub_classes $(dir $@)
+	@$(BOOTJDK)/javac -d $(OUTPUTDIR)/text2speech_stub_classes $(T2S_STUB_SOURCES)
+	@$(BOOTJDK)/jar -cf $@ -C $(OUTPUTDIR)/text2speech_stub_classes .
 
 $(OUTPUTDIR)/patchjna_agent.jar: $(CLASSES)
 	@set -e
