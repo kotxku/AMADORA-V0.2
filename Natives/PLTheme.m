@@ -9,17 +9,18 @@ static UIColor *hex(uint32_t rgb) {
 
 @implementation PLTheme
 
-// Values measured from Pandora's screenshots (Tailwind neutral-950/800/50/400, green/sky/red-900)
-+ (UIColor *)background { return hex(0x0a0a0a); }
-+ (UIColor *)border { return hex(0x262626); }
-+ (UIColor *)foreground { return hex(0xfafafa); }
-+ (UIColor *)muted { return hex(0xa3a3a3); }
+// The AMADORA logo's palette (docs/branding): night background, gem purples, lilac highlight, teal sparkles
++ (UIColor *)background { return hex(0x170b2c); }
++ (UIColor *)border { return hex(0x3b1a8f); }
++ (UIColor *)foreground { return hex(0xf1e8ff); }
++ (UIColor *)muted { return hex(0xb98cff); }
++ (UIColor *)accent { return hex(0x5ee6d0); }
 
 + (UIColor *)colorForKind:(PLButtonKind)kind {
     switch (kind) {
-        case PLButtonKindSuccess: return hex(0x14532d);
-        case PLButtonKindInfo: return hex(0x0c4a6e);
-        case PLButtonKindDanger: return hex(0x7f1d1d);
+        case PLButtonKindSuccess: return hex(0x7b3fe4);
+        case PLButtonKindInfo: return hex(0x3b1a8f);
+        case PLButtonKindDanger: return hex(0x9b1c3c);
         case PLButtonKindPlain: return UIColor.clearColor;
     }
 }
@@ -69,15 +70,14 @@ static UIColor *hex(uint32_t rgb) {
 
     UISegmentedControl.appearance.selectedSegmentTintColor = self.border;
     [UISegmentedControl.appearance setTitleTextAttributes:@{NSForegroundColorAttributeName: self.foreground, NSFontAttributeName: [self fontOfSize:14]} forState:UIControlStateNormal];
-    // Pandora's toggles are a white track with a dark knob when on
-    UISwitch.appearance.onTintColor = self.foreground;
-    UISwitch.appearance.thumbTintColor = self.background;
-    UIProgressView.appearance.progressTintColor = [self colorForKind:PLButtonKindSuccess];
+    UISwitch.appearance.onTintColor = self.accent;
+    UISwitch.appearance.thumbTintColor = self.foreground;
+    UIProgressView.appearance.progressTintColor = self.accent;
 }
 
 + (void)applyToWindow:(UIWindow *)window {
     window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    window.tintColor = self.foreground;
+    window.tintColor = self.accent;
     window.backgroundColor = self.background;
 }
 

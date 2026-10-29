@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
 
-// Pandora Launcher's dark theme (gpui-component "Default Dark", neutral palette), shared by every launcher screen.
+// Pandora Launcher's layout in the AMADORA logo's colours (docs/branding), shared by every launcher screen.
 typedef NS_ENUM(NSInteger, PLButtonKind) {
     PLButtonKindSuccess, // green: Install, Add, Play
     PLButtonKindInfo,    // blue: Open Page, secondary actions
@@ -10,10 +10,11 @@ typedef NS_ENUM(NSInteger, PLButtonKind) {
 
 @interface PLTheme : NSObject
 
-@property(class, nonatomic, readonly) UIColor *background; // #0a0a0a
-@property(class, nonatomic, readonly) UIColor *border;     // #262626, also the selected-row pill
-@property(class, nonatomic, readonly) UIColor *foreground; // #fafafa
-@property(class, nonatomic, readonly) UIColor *muted;      // #a3a3a3
+@property(class, nonatomic, readonly) UIColor *background; // #170b2c
+@property(class, nonatomic, readonly) UIColor *border;     // #3b1a8f, also the selected-row pill
+@property(class, nonatomic, readonly) UIColor *foreground; // #f1e8ff
+@property(class, nonatomic, readonly) UIColor *muted;      // #b98cff
+@property(class, nonatomic, readonly) UIColor *accent;     // #5ee6d0: links, switches, progress
 
 + (UIColor *)colorForKind:(PLButtonKind)kind;
 // Inter Regular (bundled; Pandora ships only that weight) at the given size; the system font if it failed to load
@@ -28,7 +29,7 @@ typedef NS_ENUM(NSInteger, PLButtonKind) {
 + (void)styleButton:(UIButton *)button kind:(PLButtonKind)kind;
 // Pandora's small grey section headers ("Library", "Content", ...)
 + (UILabel *)sectionHeaderLabel:(NSString *)text;
-// Rounded #262626 border used by Pandora's panels and cards
+// Rounded border-colour outline used by Pandora's panels and cards
 + (void)styleCard:(UIView *)view;
 
 @end
