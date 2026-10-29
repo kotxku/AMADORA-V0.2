@@ -157,7 +157,7 @@ static NSNumber *curseForgeClass(PLContentType type) {
             NSString *name = typed(typed(category, NSDictionary.class)[@"name"], NSString.class);
             if (name) [tags addObject:name];
         }
-        NSDictionary *author = typed(typed(mod[@"authors"], NSArray.class).firstObject, NSDictionary.class);
+        NSDictionary *author = typed([typed(mod[@"authors"], NSArray.class) firstObject], NSDictionary.class);
         [results addObject:@{
             @"id": [mod[@"id"] stringValue],
             @"slug": typed(mod[@"slug"], NSString.class) ?: @"",
