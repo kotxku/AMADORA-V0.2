@@ -1,3 +1,4 @@
+#import "PLTheme.h"
 #import "SceneDelegate.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
@@ -16,6 +17,8 @@ extern UIWindow *mainWindow;
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
     self.window.frame = windowScene.coordinateSpace.bounds;
     mainWindow = self.window;
+    [PLTheme apply];
+    [PLTheme applyToWindow:self.window];
     launchInitialViewController(self.window);
     [self.window makeKeyAndVisible];
 }

@@ -129,6 +129,7 @@ add_executable(AngelAuraAmethyst
   installer/FabricUtils.m
   installer/ModDoctor.m
   installer/PandoraImport.m
+  installer/ContentInstaller.m
   installer/modpack/ModpackUtils.m
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m
@@ -140,6 +141,8 @@ add_executable(AngelAuraAmethyst
 
   AccountListViewController.m
   AppDelegate.m
+  ContentBrowserViewController.m
+  InstanceViewController.m
   CustomControlsViewController.m
   CustomControlsViewController+UndoManager.m
   DownloadProgressViewController.m
@@ -166,8 +169,11 @@ add_executable(AngelAuraAmethyst
   PLPreferences.m
   PLPrefTableViewController.m
   PLProfiles.m
+  PLSync.m
+  PLTheme.m
   SceneDelegate.m
   SceneExternalDelegate.m
+  SyncingViewController.m
   SurfaceViewController.m
   SurfaceViewController+ExternalDisplay.m
   SurfaceViewController+LogView.m

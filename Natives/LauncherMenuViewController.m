@@ -1,6 +1,10 @@
 #import "authenticator/BaseAuthenticator.h"
 #import "AccountListViewController.h"
 #import "AFNetworking.h"
+#import "ContentBrowserViewController.h"
+#import "InstanceViewController.h"
+#import "PLTheme.h"
+#import "SyncingViewController.h"
 #import "ALTServerConnection.h"
 #import "LauncherNavigationController.h"
 #import "LauncherMenuViewController.h"
@@ -28,7 +32,10 @@
 }
 
 + (LauncherMenuCustomItem *)vcClass:(Class)class {
-    id vc = [class new];
+    return [self viewController:[class new]];
+}
+
++ (LauncherMenuCustomItem *)viewController:(id)vc {
     LauncherMenuCustomItem *item = [[LauncherMenuCustomItem alloc] init];
     item.title = [vc title];
     item.imageName = [vc imageName];
@@ -39,10 +46,19 @@
 
 @end
 
+// Pandora's sidebar sections; Recent Instances is filled from the profiles each time the menu shows
+typedef NS_ENUM(NSInteger, LauncherMenuSection) {
+    kMenuLibrary,
+    kMenuContent,
+    kMenuRecent,
+    kMenuLauncher
+};
+
 @interface LauncherMenuViewController()
-@property(nonatomic) NSMutableArray<LauncherMenuCustomItem*> *options;
+@property(nonatomic) NSArray<NSMutableArray<LauncherMenuCustomItem*> *> *sections;
+@property(nonatomic) NSArray<NSString *> *recentProfiles;
 @property(nonatomic) UILabel *statusLabel;
-@property(nonatomic) int lastSelectedIndex;
+@property(nonatomic) NSIndexPath *lastSelected;
 @end
 
 @implementation LauncherMenuViewController
@@ -59,19 +75,27 @@
     self.navigationItem.titleView = titleView;
     [titleView sizeToFit];
     
-    self.options = @[
+    LauncherMenuCustomItem *instances = [LauncherMenuCustomItem vcClass:LauncherProfilesViewController.class];
+    instances.title = @"Instances";
+    NSMutableArray *launcher = @[
         [LauncherMenuCustomItem vcClass:LauncherNewsViewController.class],
-        [LauncherMenuCustomItem vcClass:LauncherProfilesViewController.class],
         [LauncherMenuCustomItem vcClass:LauncherPreferencesViewController.class],
     ].mutableCopy;
+    self.sections = @[
+        @[instances, [LauncherMenuCustomItem vcClass:SyncingViewController.class]].mutableCopy,
+        @[[LauncherMenuCustomItem viewController:[[ContentBrowserViewController alloc] initWithSource:PLContentSourceModrinth targetProfileName:nil]],
+          [LauncherMenuCustomItem viewController:[[ContentBrowserViewController alloc] initWithSource:PLContentSourceCurseForge targetProfileName:nil]]].mutableCopy,
+        [NSMutableArray new],
+        launcher
+    ];
     if (realUIIdiom != UIUserInterfaceIdiomTV) {
-        [self.options addObject:(id)[LauncherMenuCustomItem
+        [launcher addObject:(id)[LauncherMenuCustomItem
                                      title:localize(@"launcher.menu.custom_controls", nil)
                                      imageName:@"MenuCustomControls" action:^{
             [contentNavigationController performSelector:@selector(enterCustomControls)];
         }]];
     }
-    [self.options addObject:
+    [launcher addObject:
      (id)[LauncherMenuCustomItem
           title:localize(@"launcher.menu.execute_jar", nil)
           imageName:@"MenuInstallJar" action:^{
@@ -79,7 +103,7 @@
     }]];
     
     // TODO: Finish log-uploading service integration
-    [self.options addObject:
+    [launcher addObject:
      (id)[LauncherMenuCustomItem
           title:localize(@"login.menu.sendlogs", nil)
           imageName:@"square.and.arrow.up" action:^{
@@ -106,7 +130,7 @@
     dateFormatter.dateFormat = @"MM-dd";
     NSString* date = [dateFormatter stringFromDate:NSDate.date];
     if([date isEqualToString:@"06-29"] || [date isEqualToString:@"06-30"] || [date isEqualToString:@"07-01"]) {
-        [self.options addObject:(id)[LauncherMenuCustomItem
+        [launcher addObject:(id)[LauncherMenuCustomItem
                                      title:@"Technoblade never dies!"
                                      imageName:@"" action:^{
             openLink(self, [NSURL URLWithString:@"https://youtu.be/DPMluEVUqS0"]);
@@ -114,6 +138,10 @@
     }
     
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+    self.tableView.backgroundColor = PLTheme.background;
+    if (@available(iOS 15.0, *)) {
+        self.tableView.sectionHeaderTopPadding = 0;
+    }
     
     self.navigationController.toolbarHidden = NO;
     UIActivityIndicatorViewStyle indicatorStyle = UIActivityIndicatorViewStyleMedium;
@@ -130,10 +158,11 @@
     
     [self updateAccountInfo];
     
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:1 inSection:0];
+    [self reloadRecentInstances];
+    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:kMenuLibrary];
     [self.tableView selectRowAtIndexPath:indexPath animated:YES scrollPosition:UITableViewScrollPositionNone];
     [self tableView:self.tableView didSelectRowAtIndexPath:indexPath];
-    self.lastSelectedIndex = 1;
+    self.lastSelected = indexPath;
     
     if (getEntitlementValue(@"get-task-allow")) {
         [self displayProgress:localize(@"login.jit.checking", nil)];
@@ -161,7 +190,19 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self reloadRecentInstances];
     [self restoreHighlightedSelection];
+}
+
+// Up to three instances, most recently played first (lastUsed is set at launch)
+- (void)reloadRecentInstances {
+    NSDictionary *profiles = PLProfiles.current.profiles;
+    self.recentProfiles = [[profiles.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        NSString *usedA = profiles[a][@"lastUsed"] ?: @"", *usedB = profiles[b][@"lastUsed"] ?: @"";
+        NSComparisonResult byDate = [usedB compare:usedA];
+        return byDate != NSOrderedSame ? byDate : [a localizedCaseInsensitiveCompare:b];
+    }] subarrayWithRange:NSMakeRange(0, MIN(3, profiles.count))];
+    [self.tableView reloadData];
 }
 
 - (UIBarButtonItem *)drawAccountButton {
@@ -183,13 +224,38 @@
 
 - (void)restoreHighlightedSelection {
     // Restore the selected row when the view appears again
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:self.lastSelectedIndex inSection:0];
-    [self.tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
+    if (!self.lastSelected) return;
+    [self.tableView selectRowAtIndexPath:self.lastSelected animated:NO scrollPosition:UITableViewScrollPositionNone];
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    return self.sections.count;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return self.options.count;
+    return section == kMenuRecent ? self.recentProfiles.count : self.sections[section].count;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if ([self tableView:tableView numberOfRowsInSection:section] == 0) return nil;
+    UIView *header = [UIView new];
+    UILabel *label = [PLTheme sectionHeaderLabel:@[@"Library", @"Content", @"Recent Instances", @"Launcher"][section]];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [header addSubview:label];
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:20],
+        [label.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-4]
+    ]];
+    return header;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return [self tableView:tableView numberOfRowsInSection:section] == 0 ? 0.01 : 34;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 0.01;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -197,35 +263,47 @@
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
     if (cell == nil) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"cell"];
+        cell.backgroundColor = PLTheme.background;
+        cell.textLabel.font = [PLTheme fontOfSize:16];
+        cell.textLabel.textColor = PLTheme.foreground;
+        // Pandora's selection: a rounded #262626 pill inset from the sidebar edges
+        UIView *pill = [UIView new];
+        UIView *fill = [UIView new];
+        fill.backgroundColor = PLTheme.border;
+        fill.layer.cornerRadius = 6;
+        fill.translatesAutoresizingMaskIntoConstraints = NO;
+        [pill addSubview:fill];
+        [NSLayoutConstraint activateConstraints:@[
+            [fill.topAnchor constraintEqualToAnchor:pill.topAnchor constant:2],
+            [fill.bottomAnchor constraintEqualToAnchor:pill.bottomAnchor constant:-2],
+            [fill.leadingAnchor constraintEqualToAnchor:pill.leadingAnchor constant:8],
+            [fill.trailingAnchor constraintEqualToAnchor:pill.trailingAnchor constant:-8]
+        ]];
+        cell.selectedBackgroundView = pill;
     }
-
-    cell.textLabel.text = [self.options[indexPath.row] title];
-    
-    UIImage *origImage = [UIImage systemImageNamed:[self.options[indexPath.row]
-        performSelector:@selector(imageName)]];
-    if (origImage) {
-        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(40, 40)];
-        UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext*_Nonnull myContext) {
-            CGFloat scaleFactor = 40/origImage.size.height;
-            [origImage drawInRect:CGRectMake(20 - origImage.size.width*scaleFactor/2, 0, origImage.size.width*scaleFactor, 40)];
-        }];
-        cell.imageView.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    }
-    
-    if (cell.imageView.image == nil) {
-        cell.imageView.layer.magnificationFilter = kCAFilterNearest;
-        cell.imageView.layer.minificationFilter = kCAFilterNearest;
-        cell.imageView.image = [UIImage imageNamed:[self.options[indexPath.row]
-            performSelector:@selector(imageName)]];
-        cell.imageView.image = [cell.imageView.image _imageWithSize:CGSizeMake(40, 40)];
-    }
+    cell.textLabel.text = indexPath.section == kMenuRecent ? self.recentProfiles[indexPath.row] : self.sections[indexPath.section][indexPath.row].title;
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    LauncherMenuCustomItem *selected = self.options[indexPath.row];
-    
+    if (indexPath.section == kMenuRecent) {
+        // A recent instance opens its page on top of Instances, like clicking one in Pandora's sidebar
+        NSString *name = self.recentProfiles[indexPath.row];
+        NSIndexPath *instancesPath = [NSIndexPath indexPathForRow:0 inSection:kMenuLibrary];
+        if (![self.lastSelected isEqual:instancesPath]) {
+            [self tableView:tableView didSelectRowAtIndexPath:instancesPath];
+        }
+        [contentNavigationController popToRootViewControllerAnimated:NO];
+        [contentNavigationController pushViewController:[[InstanceViewController alloc] initWithProfileName:name] animated:YES];
+        [self restoreHighlightedSelection];
+        if (self.splitViewController.displayMode == UISplitViewControllerDisplayModeOneOverSecondary) {
+            [self.splitViewController hideColumn:UISplitViewControllerColumnPrimary];
+        }
+        return;
+    }
+    LauncherMenuCustomItem *selected = self.sections[indexPath.section][indexPath.row];
+
     if (selected.action != nil) {
         [self restoreHighlightedSelection];
         ((LauncherMenuCustomItem *)selected).action();
@@ -233,10 +311,12 @@
         if(self.isInitialVc) {
             self.isInitialVc = NO;
         } else {
-            self.options[self.lastSelectedIndex].vcArray = contentNavigationController.viewControllers;
+            LauncherMenuCustomItem *previous = self.sections[self.lastSelected.section][self.lastSelected.row];
+            previous.vcArray = contentNavigationController.viewControllers;
             [contentNavigationController setViewControllers:selected.vcArray animated:NO];
-            self.lastSelectedIndex = indexPath.row;
+            self.lastSelected = indexPath;
         }
+        [tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
         selected.vcArray[0].navigationItem.rightBarButtonItem = self.accountBtnItem;
         selected.vcArray[0].navigationItem.leftBarButtonItem = self.splitViewController.displayModeButtonItem;
         selected.vcArray[0].navigationItem.leftItemsSupplementBackButton = true;

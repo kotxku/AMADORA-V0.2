@@ -6,6 +6,7 @@
 #import "LauncherPrefManageJREViewController.h"
 #import "LauncherProfileEditorViewController.h"
 #import "LauncherProfilesViewController.h"
+#import "InstanceViewController.h"
 //#import "NSFileManager+NRFileManager.h"
 #import "PLProfiles.h"
 #pragma clang diagnostic push
@@ -35,7 +36,7 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
 
 - (id)init {
     self = [super init];
-    self.title = localize(@"Profiles", nil);
+    self.title = @"Instances";
     return self;
 }
 
@@ -290,7 +291,9 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
         return;
     }
 
-    [self actionEditProfile:PLProfiles.current.profiles.allValues[indexPath.row]];
+    // Pandora opens the instance page; its gear button (and the long-press menu) edits the profile
+    NSString *name = PLProfiles.current.profiles.allKeys[indexPath.row];
+    [self.navigationController pushViewController:[[InstanceViewController alloc] initWithProfileName:name] animated:YES];
 }
 
 #pragma mark Context Menu configuration
@@ -300,6 +303,9 @@ typedef NS_ENUM(NSUInteger, LauncherProfilesTableSection) {
     NSDictionary *profile = PLProfiles.current.profiles.allValues[indexPath.row];
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
         return [UIMenu menuWithTitle:@"" children:@[
+            [UIAction actionWithTitle:@"Edit" image:[UIImage systemImageNamed:@"gearshape"] identifier:nil handler:^(UIAction *action) {
+                [self actionEditProfile:profile];
+            }],
             [UIAction actionWithTitle:@"Find & Download Missing Mods" image:[UIImage systemImageNamed:@"stethoscope"] identifier:nil handler:^(UIAction *action) {
                 [self actionFixMissingModsForProfile:profile];
             }]

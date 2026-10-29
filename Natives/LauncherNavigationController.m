@@ -9,6 +9,8 @@
 #import "JavaGUIViewController.h"
 #import "LauncherMenuViewController.h"
 #import "LauncherNavigationController.h"
+#import "PLSync.h"
+#import "PLTheme.h"
 #import "LauncherPreferences.h"
 #import "MinecraftResourceDownloadTask.h"
 #import "MinecraftResourceUtils.h"
@@ -93,7 +95,7 @@
                                                                  action:@selector(performInstallOrShowDetails:)];
         self.buttonInstallItem.enabled = NO;
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.buttonInstallItem.buttonGlassView.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:0.5];
+            self.buttonInstallItem.buttonGlassView.backgroundColor = [PLTheme colorForKind:PLButtonKindSuccess];
         });
         [textFieldContainer addSubview:self.versionTextField];
         UIBarButtonItem *textFieldItem = [[UIBarButtonItem alloc] initWithCustomView:textFieldContainer];
@@ -106,8 +108,8 @@
         setButtonPointerInteraction(self.buttonInstall);
         [self.buttonInstall setTitle:localize(@"Play", nil) forState:UIControlStateNormal];
         self.buttonInstall.autoresizingMask = AUTORESIZE_MASKS;
-        self.buttonInstall.backgroundColor = [UIColor colorWithRed:121/255.0 green:56/255.0 blue:162/255.0 alpha:1.0];
-        self.buttonInstall.layer.cornerRadius = 5;
+        self.buttonInstall.backgroundColor = [PLTheme colorForKind:PLButtonKindSuccess];
+        self.buttonInstall.layer.cornerRadius = 4;
         self.buttonInstall.frame = CGRectMake(self.toolbar.frame.size.width * 0.8, 4, self.toolbar.frame.size.width * 0.2, self.toolbar.frame.size.height - 8);
         self.buttonInstall.tintColor = UIColor.whiteColor;
         self.buttonInstall.enabled = NO;
@@ -396,7 +398,15 @@
     NSDictionary *profile = [PLProfiles.current.selectedProfile copy];
     [self setInteractionEnabled:NO forDownloading:NO];
     self.progressText.text = @"Checking Java and mods";
+    NSMutableDictionary *saved = PLProfiles.current.profiles[profileName];
+    if (saved) {
+        // Standard launcher_profiles.json field; orders the sidebar's Recent Instances
+        NSISO8601DateFormatter *iso = [NSISO8601DateFormatter new];
+        saved[@"lastUsed"] = [iso stringFromDate:NSDate.date];
+        [PLProfiles.current save];
+    }
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [PLSync prepareGameDir:[PLProfiles gameDirForProfile:profile]];
         int required = 0;
         NSString *warning;
         int selected = [ModDoctor selectJavaForProfile:profile versionJSON:metadata required:&required javaHome:nil warning:&warning];
@@ -406,7 +416,6 @@
                 [self showMissingJava:required];
                 return;
             }
-            NSMutableDictionary *saved = PLProfiles.current.profiles[profileName];
             if (saved && [saved[@"javaVersion"] intValue] != selected) {
                 saved[@"javaVersion"] = @(selected).stringValue;
                 [PLProfiles.current save];

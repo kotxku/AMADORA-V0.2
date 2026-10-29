@@ -10,6 +10,8 @@
 
 //+ (id)profile:(NSMutableDictionary *)profile resolveKey:(id)key;
 + (NSString *)resolveKeyForCurrentProfile:(id)key;
+// The instance folder (Pandora's .minecraft) a profile plays in: GAME_DIR joined with its gameDir
++ (NSString *)gameDirForProfile:(NSDictionary *)profile;
 
 - (id)initWithCurrentInstance;
 - (NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *)profiles;

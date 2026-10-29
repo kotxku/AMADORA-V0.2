@@ -56,6 +56,11 @@ static PLProfiles* current;
     return getPrefObject(prefDefaults[key]);
 }
 
++ (NSString *)gameDirForProfile:(NSDictionary *)profile {
+    NSString *gameDir = profile[@"gameDir"];
+    return [@(getenv("GAME_DIR")) stringByAppendingPathComponent:gameDir.length ? gameDir : @"."].stringByStandardizingPath;
+}
+
 + (id)resolveKeyForCurrentProfile:(id)key {
     return [self profile:self.current.selectedProfile resolveKey:key];
 }
