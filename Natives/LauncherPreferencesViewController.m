@@ -431,7 +431,7 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == 0) { // Add to general section
-        return [NSString stringWithFormat:@"AMADORA V0.2 (based on Angel Aura Amethyst) %@-%s (%s/%s)\n%@ on %@ (%s)\nPID: %d",
+        return [NSString stringWithFormat:@"AMADORA V0.3 (based on Angel Aura Amethyst) %@-%s (%s/%s)\n%@ on %@ (%s)\nPID: %d",
             NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"],
             CONFIG_TYPE, CONFIG_BRANCH, CONFIG_COMMIT,
             UIDevice.currentDevice.completeOSVersion, [HostManager GetModelName], getenv("AME_DETECTEDINST"), getpid()];
