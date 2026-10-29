@@ -30,7 +30,8 @@ install_name_tool -id @rpath/libSDL3.dylib "$OUT"
 
 # Fail the build rather than ship a macOS binary or one without the gamepad API Controlify binds
 otool -l "$OUT" | grep -A4 LC_BUILD_VERSION | grep -q "platform 2" || { echo "not an iOS binary"; exit 1; }
+EXPORTS="$(nm -gU "$OUT")" # captured once: grep -q closing a pipe early fails it under pipefail
 for sym in SDL_GetVersion SDL_InitSubSystem SDL_GetGamepads SDL_OpenGamepad SDL_GetGamepadAxis SDL_SetHint; do
-    nm -gU "$OUT" | grep -q " _$sym\$" || { echo "missing $sym"; exit 1; }
+    grep -q " _$sym\$" <<<"$EXPORTS" || { echo "missing $sym"; exit 1; }
 done
 echo "Built $OUT"
