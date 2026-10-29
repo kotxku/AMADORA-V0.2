@@ -343,9 +343,7 @@
     NSDictionary *info = [PandoraImport loaderInfoForVersionId:self.profile[@"lastVersionId"]];
     NSString *message = @"Downloads the Rocket Craft kit (about 1.8 GB) and adds its mods, the RL Assets, RL Pack and Music Pack resource packs, and its config to this instance. Keep AMADORA open until it finishes.";
     if (![info[@"loader"] isEqualToString:@"fabric"] || ![info[@"mc"] isEqualToString:@"26.3"]) {
-        message = [NSString stringWithFormat:@"Rocket Craft needs a Minecraft 26.3 Fabric instance (loader 0.19.5 or newer); this one is %@.
-
-%@", self.profile[@"lastVersionId"], message];
+        message = [NSString stringWithFormat:@"Rocket Craft needs a Minecraft 26.3 Fabric instance (loader 0.19.5 or newer); this one is %@.\n\n%@", self.profile[@"lastVersionId"], message];
     }
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Install Rocket Craft?" message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
