@@ -9,6 +9,8 @@
 #import "UIKit+AFNetworking.h"
 #pragma clang diagnostic pop
 #import "installer/ContentInstaller.h"
+#import "installer/PandoraImport.h"
+#import "installer/RocketCraftInstaller.h"
 #import "ios_uikit_bridge.h"
 #import "utils.h"
 
@@ -141,9 +143,15 @@
     [curseForge addTarget:self action:@selector(addFromCurseForge) forControlEvents:UIControlEventPrimaryActionTriggered];
     UIButton *file = [PLTheme buttonWithTitle:@"File" systemImage:@"plus" kind:PLButtonKindSuccess];
     [file addTarget:self action:@selector(addFromFile) forControlEvents:UIControlEventPrimaryActionTriggered];
-    UIStackView *buttons = [[UIStackView alloc] initWithArrangedSubviews:@[modrinth, curseForge, file]];
+    UIButton *rocketCraft = [PLTheme buttonWithTitle:@"Rocket Craft" systemImage:@"car.fill" kind:PLButtonKindInfo];
+    [rocketCraft addTarget:self action:@selector(addRocketCraft) forControlEvents:UIControlEventPrimaryActionTriggered];
+    UIStackView *addButtons = [[UIStackView alloc] initWithArrangedSubviews:@[modrinth, curseForge, file]];
+    addButtons.spacing = 8;
+    addButtons.distribution = UIStackViewDistributionFillProportionally;
+    UIStackView *buttons = [[UIStackView alloc] initWithArrangedSubviews:@[addButtons, rocketCraft]];
+    buttons.axis = UILayoutConstraintAxisVertical;
+    buttons.alignment = UIStackViewAlignmentLeading;
     buttons.spacing = 8;
-    buttons.distribution = UIStackViewDistributionFillProportionally;
 
     self.searchBar = [UISearchBar new];
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
@@ -323,6 +331,70 @@
     }
     if (failed.count) showDialog(@"Some files weren't added", [failed componentsJoinedByString:@"\n"]);
     [self reloadFiles];
+}
+
+#pragma mark Rocket Craft
+
+- (void)addRocketCraft {
+    if (!RocketCraftInstaller.gitHubToken) {
+        [self askForGitHubToken];
+        return;
+    }
+    NSDictionary *info = [PandoraImport loaderInfoForVersionId:self.profile[@"lastVersionId"]];
+    NSString *message = @"Downloads the Rocket Craft kit (about 1.8 GB) and adds its mods, the RL Assets, RL Pack and Music Pack resource packs, and its config to this instance. Keep AMADORA open until it finishes.";
+    if (![info[@"loader"] isEqualToString:@"fabric"] || ![info[@"mc"] isEqualToString:@"26.3"]) {
+        message = [NSString stringWithFormat:@"Rocket Craft needs a Minecraft 26.3 Fabric instance (loader 0.19.5 or newer); this one is %@.
+
+%@", self.profile[@"lastVersionId"], message];
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Install Rocket Craft?" message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Change token" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self askForGitHubToken];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Install" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self installRocketCraft];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)askForGitHubToken {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"GitHub token"
+        message:@"Rocket Craft downloads from your private kotxku/Rocket-Craft release. Paste a GitHub token with read access to it (fine-grained: Contents read-only). It stays in this device's Keychain."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = @"github_pat_...";
+        field.secureTextEntry = YES;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        RocketCraftInstaller.gitHubToken = alert.textFields.firstObject.text;
+        if (RocketCraftInstaller.gitHubToken) [self addRocketCraft];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)installRocketCraft {
+    NSString *gameDir = self.gameDir;
+    UIAlertController *busy = [UIAlertController alertControllerWithTitle:@"Installing Rocket Craft" message:@"Finding the release" preferredStyle:UIAlertControllerStyleAlert];
+    [self presentViewController:busy animated:YES completion:^{
+        // A 1.8 GB download takes a while; don't let the screen lock suspend it
+        UIApplication.sharedApplication.idleTimerDisabled = YES;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSString *report = [RocketCraftInstaller installIntoGameDir:gameDir progress:^(NSString *status) {
+                dispatch_async(dispatch_get_main_queue(), ^{ busy.message = status; });
+            }];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIApplication.sharedApplication.idleTimerDisabled = NO;
+                [busy dismissViewControllerAnimated:YES completion:^{
+                    showDialog(@"Rocket Craft", report);
+                    [self reloadFiles];
+                }];
+            });
+        });
+    }];
 }
 
 - (void)openSettings {

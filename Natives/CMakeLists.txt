@@ -130,6 +130,7 @@ add_executable(AngelAuraAmethyst
   installer/ModDoctor.m
   installer/PandoraImport.m
   installer/ContentInstaller.m
+  installer/RocketCraftInstaller.m
   installer/modpack/ModpackUtils.m
   installer/modpack/ModpackAPI.m
   installer/modpack/CurseForgeAPI.m
@@ -202,6 +203,7 @@ target_link_libraries(AngelAuraAmethyst
   "-framework CoreGraphics"
   "-framework CoreImage"
   "-framework CoreMotion"
+  "-framework CoreText"
   "-framework GameController"
   "-framework IOKit"
   "-framework QuartzCore"
