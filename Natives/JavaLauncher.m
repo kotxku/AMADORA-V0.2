@@ -325,6 +325,11 @@ int launchJVM(NSString *username, id launchTarget, int width, int height, int mi
     // JNA must load the signed libjnidispatch from Frameworks; an extracted copy in Caches fails code signature checks
     margv[++margc] = [NSString stringWithFormat:@"-Djna.boot.library.path=%@/Frameworks", NSBundle.mainBundle.bundlePath].UTF8String;
     margv[++margc] = "-Djna.nounpack=true";
+    // Controlify loads SDL3 through FFM from this path instead of its desktop builds, which iOS can't load
+    NSString *sdl3 = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/libSDL3.dylib"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:sdl3]) {
+        margv[++margc] = [NSString stringWithFormat:@"-Ddev.isxander.sdl.library=%@", sdl3].UTF8String;
+    }
     margv[++margc] = "-Djna.noclasspath=true";
     margv[++margc] = "-Djna.nosys=true";
 

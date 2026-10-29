@@ -70,8 +70,10 @@ public class ModApiTest {
         check(SDLHints.SDL_SetHint("SDL_MOUSE_RELATIVE_MODE_CENTER", "0") && "0".equals(SDLHints.SDL_GetHint("SDL_MOUSE_RELATIVE_MODE_CENTER")), "hint round trip");
         check(!SDLHints.SDL_GetHintBoolean("SDL_MOUSE_RELATIVE_MODE_CENTER", true) && SDLHints.SDL_ResetHint("SDL_MOUSE_RELATIVE_MODE_CENTER")
             && SDLHints.SDL_GetHint("SDL_MOUSE_RELATIVE_MODE_CENTER") == null, "hint boolean and reset");
-        check(!SDLInit.SDL_InitSubSystem(SDLInit.SDL_INIT_GAMEPAD) && SDLError.SDL_GetError().contains("iOS"), "gamepad subsystem refused with a reason");
-        check(SDLInit.SDL_WasInit(SDLInit.SDL_INIT_GAMEPAD) == 0, "gamepad not initialised");
+        check(!SDLInit.SDL_InitSubSystem(SDLInit.SDL_INIT_AUDIO) && SDLError.SDL_GetError().contains("iOS"), "audio subsystem refused with a reason");
+        check(SDLInit.SDL_WasInit(SDLInit.SDL_INIT_AUDIO) == 0, "audio not initialised");
+        AmadoraSDL.initialized = true; // no GLFW window on the desktop; SDL_Init only needs the flag
+        check(SDLInit.SDL_InitSubSystem(SDLInit.SDL_INIT_GAMEPAD) && SDLInit.SDL_WasInit(SDLInit.SDL_INIT_GAMEPAD) != 0, "gamepad subsystem accepted");
         IntBuffer pads = SDLGamepad.SDL_GetGamepads();
         check(pads != null && pads.remaining() == 0 && !SDLGamepad.SDL_HasGamepad(), "no gamepads");
         SDLStdinc.SDL_free(pads);

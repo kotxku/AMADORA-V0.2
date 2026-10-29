@@ -6,9 +6,10 @@ package org.lwjgl.sdl;
 public final class SDLInit {
     private SDLInit() {}
 
-    // Video and events are the GLFW layer. Audio, joysticks, gamepads, haptics, sensors and cameras have no SDL
-    // backend here, so asking for them fails the way SDL does when a subsystem is missing; mods then skip them.
-    private static final int SUPPORTED = 0x20 | 0x4000; // SDL_INIT_VIDEO | SDL_INIT_EVENTS
+    // Video and events are the GLFW layer; gamepads (and the joysticks they imply) are polled from iOS, see
+    // SDLGamepad. Audio, haptics, sensors and cameras have no SDL backend here, so asking for them fails the way SDL
+    // does when a subsystem is missing; mods then skip them.
+    private static final int SUPPORTED = 0x20 | 0x4000 | 0x200 | 0x2000; // VIDEO | EVENTS | JOYSTICK | GAMEPAD
 
     public static boolean SDL_Init(int flags) {
         AmadoraSDL.init();
@@ -19,7 +20,7 @@ public final class SDLInit {
     public static boolean SDL_InitSubSystem(int flags) {
         if ((flags & ~SUPPORTED) != 0) {
             AmadoraSDL.setError("SDL subsystem 0x" + Integer.toHexString(flags & ~SUPPORTED) + " isn't available on iOS");
-            System.out.println("[SDLBridge] SDL_InitSubSystem(0x" + Integer.toHexString(flags) + "): only video and events are available on iOS");
+            System.out.println("[SDLBridge] SDL_InitSubSystem(0x" + Integer.toHexString(flags) + "): only video, events and gamepads are available on iOS");
             return false;
         }
         return SDL_Init(flags);

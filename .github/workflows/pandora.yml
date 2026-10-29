@@ -44,6 +44,12 @@ jobs:
           git clone --depth 1 -b 3.53.2.1 https://github.com/xerial/sqlite-jdbc "$RUNNER_TEMP/sqlite-jdbc"
           bash tools/build_sqlite_jdbc_ios.sh "$RUNNER_TEMP/sqlite-jdbc" Natives/build/libsqlitejdbc.dylib
 
+      # SDL3 for Controlify's controller support; JavaLauncher points it at Frameworks/libSDL3.dylib
+      - name: Build SDL3 (Controlify) for iOS
+        run: |
+          git clone --depth 1 -b release-3.4.14 https://github.com/libsdl-org/SDL "$RUNNER_TEMP/SDL"
+          bash tools/build_sdl3_ios.sh "$RUNNER_TEMP/SDL" Natives/build/libSDL3.dylib
+
       # Current OSMesa + Zink, replacing the bundled Mesa 21.0 whose Zink cannot run Minecraft 26.x's shaders
       - name: Cache Mesa for iOS
         id: mesa-cache

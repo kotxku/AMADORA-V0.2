@@ -5,6 +5,7 @@
 #import "../utils.h"
 
 #include "../glfw_keycodes.h"
+#include "jni.h"
 
 // Left thumbstick directions
 #define DIRECTION_EAST 0
@@ -88,7 +89,27 @@ BOOL leftShiftHeld;
     }
 }
 
+// Controlify (through its own SDL3) and Rocket Craft (through LWJGL's SDL, see nativeGamepadState) read the controller
+// themselves; mapping it to keys and the mouse as well would press everything twice.
++ (BOOL)modsReadController {
+    static NSString *checkedDir;
+    static BOOL found;
+    NSString *modsDir = [[PLProfiles gameDirForProfile:PLProfiles.current.selectedProfile] stringByAppendingPathComponent:@"mods"];
+    if ([checkedDir isEqualToString:modsDir]) return found;
+    checkedDir = modsDir;
+    found = NO;
+    for (NSString *file in [NSFileManager.defaultManager contentsOfDirectoryAtPath:modsDir error:nil]) {
+        NSString *name = file.lowercaseString;
+        if ([name hasSuffix:@".jar"] && ([name hasPrefix:@"controlify"] || [name hasPrefix:@"rocketcraft"])) {
+            NSLog(@"[Controller] %@ reads the controller itself; AMADORA's button and stick mapping is off", file);
+            found = YES;
+        }
+    }
+    return found;
+}
+
 + (void)registerControllerCallbacks:(GCController *)controller {
+    if ([self modsReadController]) return;
     GCExtendedGamepad *gamepad = controller.extendedGamepad;
 
     gamepad.leftShoulder.pressedChangedHandler = ^(GCControllerButtonInput *button, float value, BOOL pressed) {
@@ -241,3 +262,29 @@ BOOL leftShiftHeld;
 }
 
 @end
+
+// org.lwjgl.sdl.SDLGamepad (the SDL bridge) polls the first controller here: axes in SDL order (left x/y, right x/y,
+// triggers) with y pointing down as in SDL, buttons SOUTH..DPAD_RIGHT. Arrays may be null to only ask for presence.
+JNIEXPORT jboolean JNICALL Java_org_lwjgl_sdl_SDLGamepad_nativeGamepadState(JNIEnv *env, jclass clazz, jfloatArray axes, jbyteArray buttons) {
+    GCExtendedGamepad *pad = GCController.controllers.firstObject.extendedGamepad;
+    if (!pad) return JNI_FALSE;
+    if (axes) {
+        jfloat values[6] = {
+            pad.leftThumbstick.xAxis.value, -pad.leftThumbstick.yAxis.value,
+            pad.rightThumbstick.xAxis.value, -pad.rightThumbstick.yAxis.value,
+            pad.leftTrigger.value, pad.rightTrigger.value
+        };
+        (*env)->SetFloatArrayRegion(env, axes, 0, 6, values);
+    }
+    if (buttons) {
+        jbyte pressed[15] = {
+            pad.buttonA.pressed, pad.buttonB.pressed, pad.buttonX.pressed, pad.buttonY.pressed,
+            pad.buttonOptions.pressed, pad.buttonHome.pressed, pad.buttonMenu.pressed,
+            pad.leftThumbstickButton.pressed, pad.rightThumbstickButton.pressed,
+            pad.leftShoulder.pressed, pad.rightShoulder.pressed,
+            pad.dpad.up.pressed, pad.dpad.down.pressed, pad.dpad.left.pressed, pad.dpad.right.pressed
+        };
+        (*env)->SetByteArrayRegion(env, buttons, 0, 15, pressed);
+    }
+    return JNI_TRUE;
+}
