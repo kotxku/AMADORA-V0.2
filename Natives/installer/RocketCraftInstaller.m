@@ -1,20 +1,17 @@
-#import <Security/Security.h>
 #import "installer/ModDoctor.h"
 #import "installer/PandoraImport.h"
 #import "installer/RocketCraftInstaller.h"
 #import "UnzipKit.h"
 
-static NSString *const kRelease = @"https://api.github.com/repos/kotxku/Rocket-Craft/releases/tags/v1.0.0";
+static NSString *const kKitURL = @"https://github.com/kotxku/Rocket-Craft/releases/download/v1.0.0/Rocket.Craft.zip";
 static NSString *const kAsset = @"Rocket.Craft.zip";
 static NSString *const kKitRoot = @"Rocket Craft/";
-static NSString *const kKeychainService = @"AMADORA.rocketcraft";
 
 static id typed(id obj, Class cls) {
     return [obj isKindOfClass:cls] ? obj : nil;
 }
 
-// Streams the asset to disk with progress. GitHub answers with a redirect to signed storage, which rejects
-// requests that still carry the token, so the redirect drops Authorization.
+// Streams the kit to disk with progress
 @interface RocketCraftDownload : NSObject <NSURLSessionDownloadDelegate>
 @property(nonatomic, copy) NSString *dest;
 @property(nonatomic, copy) void (^progress)(NSString *status);
@@ -24,13 +21,6 @@ static id typed(id obj, Class cls) {
 @end
 
 @implementation RocketCraftDownload
-
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response
-        newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
-    NSMutableURLRequest *redirect = request.mutableCopy;
-    [redirect setValue:nil forHTTPHeaderField:@"Authorization"];
-    completionHandler(redirect);
-}
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesWritten
         totalBytesWritten:(int64_t)written totalBytesExpectedToWrite:(int64_t)total {
@@ -55,62 +45,10 @@ static id typed(id obj, Class cls) {
 
 @implementation RocketCraftInstaller
 
-#pragma mark Token
-
-+ (NSMutableDictionary *)keychainQuery {
-    return @{(id)kSecClass: (id)kSecClassGenericPassword, (id)kSecAttrService: kKeychainService, (id)kSecAttrAccount: @"github"}.mutableCopy;
-}
-
-+ (NSString *)gitHubToken {
-    NSMutableDictionary *query = self.keychainQuery;
-    query[(id)kSecReturnData] = @YES;
-    query[(id)kSecMatchLimit] = (id)kSecMatchLimitOne;
-    CFTypeRef data = NULL;
-    if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &data) != errSecSuccess) return nil;
-    return [[NSString alloc] initWithData:(__bridge_transfer NSData *)data encoding:NSUTF8StringEncoding];
-}
-
-+ (void)setGitHubToken:(NSString *)token {
-    NSMutableDictionary *query = self.keychainQuery;
-    SecItemDelete((__bridge CFDictionaryRef)query);
-    token = [token stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (!token.length) return;
-    query[(id)kSecAttrAccessible] = (id)kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-    query[(id)kSecValueData] = [token dataUsingEncoding:NSUTF8StringEncoding];
-    SecItemAdd((__bridge CFDictionaryRef)query, NULL);
-}
-
 #pragma mark Download
 
 + (NSString *)downloadKitTo:(NSString *)dest progress:(void (^)(NSString *))progress {
-    NSString *token = self.gitHubToken;
-    if (!token) return @"Enter your GitHub token first.";
-
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kRelease]];
-    [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
-    [request setValue:@"application/vnd.github+json" forHTTPHeaderField:@"Accept"];
-    __block NSData *body;
-    __block NSInteger status = 0;
-    dispatch_semaphore_t fetched = dispatch_semaphore_create(0);
-    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        body = data;
-        status = [(NSHTTPURLResponse *)response statusCode];
-        dispatch_semaphore_signal(fetched);
-    }] resume];
-    dispatch_semaphore_wait(fetched, DISPATCH_TIME_FOREVER);
-    NSLog(@"[RocketCraft] Release lookup: HTTP %ld", (long)status);
-    if (status == 401) return @"GitHub didn't accept the token. Check it and enter it again.";
-    if (status == 404) return @"GitHub can't find the Rocket Craft release with this token. It needs read access to kotxku/Rocket-Craft (Contents: Read-only).";
-    if (status != 200) return [NSString stringWithFormat:@"Couldn't reach GitHub (HTTP %ld). Check your internet connection.", (long)status];
-
-    NSString *assetURL;
-    for (NSDictionary *asset in typed(typed([ModDoctor parseJSON:body], NSDictionary.class)[@"assets"], NSArray.class)) {
-        if ([typed(asset, NSDictionary.class)[@"name"] isEqual:kAsset]) assetURL = asset[@"url"];
-    }
-    if (!assetURL) return [NSString stringWithFormat:@"The release has no %@.", kAsset];
-
-    request.URL = [NSURL URLWithString:assetURL];
-    [request setValue:@"application/octet-stream" forHTTPHeaderField:@"Accept"];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:kKitURL]];
     RocketCraftDownload *download = [RocketCraftDownload new];
     download.dest = dest;
     download.progress = progress;

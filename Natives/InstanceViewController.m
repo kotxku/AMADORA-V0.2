@@ -336,10 +336,6 @@
 #pragma mark Rocket Craft
 
 - (void)addRocketCraft {
-    if (!RocketCraftInstaller.gitHubToken) {
-        [self askForGitHubToken];
-        return;
-    }
     NSDictionary *info = [PandoraImport loaderInfoForVersionId:self.profile[@"lastVersionId"]];
     NSString *message = @"Downloads the Rocket Craft kit (about 1.8 GB) and adds its mods, the RL Assets, RL Pack and Music Pack resource packs, and its config to this instance. Keep AMADORA open until it finishes.";
     if (![info[@"loader"] isEqualToString:@"fabric"] || ![info[@"mc"] isEqualToString:@"26.3"]) {
@@ -347,36 +343,15 @@
     }
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Install Rocket Craft?" message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Change token" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self askForGitHubToken];
-    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Install" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self installRocketCraft];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)askForGitHubToken {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"GitHub token"
-        message:@"Rocket Craft downloads from your private kotxku/Rocket-Craft release. Paste a GitHub token with read access to it (fine-grained: Contents read-only). It stays in this device's Keychain."
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"github_pat_...";
-        field.secureTextEntry = YES;
-        field.autocorrectionType = UITextAutocorrectionTypeNo;
-        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        RocketCraftInstaller.gitHubToken = alert.textFields.firstObject.text;
-        if (RocketCraftInstaller.gitHubToken) [self addRocketCraft];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
 - (void)installRocketCraft {
     NSString *gameDir = self.gameDir;
-    UIAlertController *busy = [UIAlertController alertControllerWithTitle:@"Installing Rocket Craft" message:@"Finding the release" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *busy = [UIAlertController alertControllerWithTitle:@"Installing Rocket Craft" message:@"Starting the download" preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:busy animated:YES completion:^{
         // A 1.8 GB download takes a while; don't let the screen lock suspend it
         UIApplication.sharedApplication.idleTimerDisabled = YES;
