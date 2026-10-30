@@ -2,6 +2,7 @@
 #import "SurfaceViewController.h"
 
 #include <dlfcn.h>
+#include <stdatomic.h>
 #include "environ.h"
 #include "utils.h"
 
@@ -74,16 +75,24 @@ void osm_make_current(osm_render_window_t* bundle) {
     osm_apply_current_ll();
 }
 
+// Set while the main thread is still putting the previous frame on screen. Queueing more frames behind it only
+// adds latency and makes the game thread wait on the main queue, so a frame that arrives meanwhile is dropped.
+static _Atomic bool framePending;
+
 void osm_swap_buffers() {
     osm_apply_current_ll();
     handle.glFinish(); // this will force osmesa to write the last rendered image into the buffer
+    if (atomic_exchange(&framePending, true)) return;
     osm_render_window_t bundle = currentBundle->osm;
+    int width = windowWidth, height = windowHeight;
     dispatch_async(dispatch_get_main_queue(), ^{
-    CGDataProviderRef bitmapProvider = CGDataProviderCreateWithData(NULL, bundle.buffer, windowWidth * windowHeight * 4, NULL);
-    CGImageRef bitmap = CGImageCreate(windowWidth, windowHeight, 8, 32, 4 * windowWidth, bundle.color_space, kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault, bitmapProvider, NULL, FALSE, kCGRenderingIntentDefault);
-    SurfaceViewController.surface.layer.contents = (__bridge id)bitmap;
-    CGImageRelease(bitmap);
-    CGDataProviderRelease(bitmapProvider);
+        // No-copy provider: CoreAnimation reads the buffer while the game thread renders the next frame into it
+        CGDataProviderRef bitmapProvider = CGDataProviderCreateWithData(NULL, bundle.buffer, width * height * 4, NULL);
+        CGImageRef bitmap = CGImageCreate(width, height, 8, 32, 4 * width, bundle.color_space, kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault, bitmapProvider, NULL, FALSE, kCGRenderingIntentDefault);
+        SurfaceViewController.surface.layer.contents = (__bridge id)bitmap;
+        CGImageRelease(bitmap);
+        CGDataProviderRelease(bitmapProvider);
+        atomic_store(&framePending, false);
     });
 }
 
